@@ -1,5 +1,6 @@
 #import "CameraBridge.h"
 #import "BolemeLicense.h"
+#import "BolemeDiagnostics.h"
 
 #import <AVFoundation/AVFoundation.h>
 #import <AudioToolbox/AudioToolbox.h>
@@ -155,6 +156,10 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
 @property (nonatomic, assign) NSUInteger microphoneSampleCount;
 @property (nonatomic, copy) NSString *microphoneFormat;
 @property (nonatomic, assign) CFTimeInterval lastControlCheck;
+@property (nonatomic, assign) CFTimeInterval lastDiagnosticTime;
+@property (nonatomic, assign) NSInteger lastLoggedAudioMode;
+@property (nonatomic, copy) NSString *lastLoggedInputName;
+@property (nonatomic, copy) NSString *lastLoggedOutputName;
 @property (nonatomic, assign) CFAbsoluteTime lastConnectTime;
 @property (nonatomic, assign) CFAbsoluteTime retryAfter;
 @property (nonatomic, copy) NSString *state;
@@ -189,6 +194,8 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
         _audioOutputName = @"未检测到";
         _microphoneDB = -60.0f;
         _microphoneFormat = @"未知格式";
+        _lastLoggedAudioMode = NSIntegerMin;
+        BolemeLog(@"插件启动");
     }
     return self;
 }
@@ -262,8 +269,11 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
     NSString *urlString = CBNormalizedStreamURL([defaults stringForKey:CBStreamURLKey]);
     BOOL enabled = [defaults boolForKey:CBEnabledKey] && [BolemeLicenseManager shared].isAuthorized;
     NSInteger audioMode = [defaults integerForKey:CBAudioModeKey];
-    if (audioMode < CBAudioModeMuted || audioMode > CBAudioModeExternalLoopback) {
-        audioMode = CBAudioModeMuted;
+    // Version 1.0 no longer exposes silence as a user mode. Existing installs that
+    // still contain the old value automatically move to the simple default: playback.
+    if (audioMode != CBAudioModeDevicePlayback && audioMode != CBAudioModeExternalLoopback) {
+        audioMode = CBAudioModeDevicePlayback;
+        [defaults setInteger:audioMode forKey:CBAudioModeKey];
     }
     AVAudioSessionRouteDescription *route = AVAudioSession.sharedInstance.currentRoute;
     AVAudioSessionPortDescription *input = route.inputs.firstObject;
@@ -274,6 +284,15 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
     self.audioRouteReady = externalInput && externalOutput;
     self.audioInputName = input.portName.length ? input.portName : @"未检测到";
     self.audioOutputName = output.portName.length ? output.portName : @"未检测到";
+    if (audioMode != self.lastLoggedAudioMode ||
+        ![self.audioInputName isEqualToString:self.lastLoggedInputName] ||
+        ![self.audioOutputName isEqualToString:self.lastLoggedOutputName]) {
+        BolemeLog(@"声音路线变化：模式 %ld，输入 %@，输出 %@",
+                  (long)audioMode, self.audioInputName, self.audioOutputName);
+        self.lastLoggedAudioMode = audioMode;
+        self.lastLoggedInputName = self.audioInputName;
+        self.lastLoggedOutputName = self.audioOutputName;
+    }
 
     if (!enabled || !urlString) {
         if (self.player) [self.player pause];
@@ -307,6 +326,9 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
         self.player.automaticallyWaitsToMinimizeStalling = YES;
         [self.player play];
         self.state = @"connecting to HLS";
+        NSURLComponents *parts = [NSURLComponents componentsWithString:urlString];
+        BolemeLog(@"开始连接电脑画面：%@%@", parts.host ?: @"未知地址",
+                  parts.port ? [NSString stringWithFormat:@":%@", parts.port] : @"");
     }
 
     // Device playback deliberately follows the system route. External-loopback mode is fail-closed:
@@ -319,6 +341,7 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
 
     if (self.player.currentItem.status == AVPlayerItemStatusFailed) {
         self.state = self.player.currentItem.error.localizedDescription ?: @"HLS playback failed";
+        BolemeLog(@"连接失败：%@", self.state);
         self.reconnectCount++;
         [self.player pause];
         self.currentURL = nil; // Allow a later retry when OBS comes back.
@@ -331,6 +354,7 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
     CFTimeInterval frameTimeout = 12.0;
     if (CFAbsoluteTimeGetCurrent() - MAX(self.lastConnectTime, mostRecentFrame) > frameTimeout) {
         self.state = @"HLS stalled; reconnecting";
+        BolemeLog(@"超过 %.0f 秒没有新画面，正在自动重连", frameTimeout);
         self.reconnectCount++;
         [self.player pause];
         self.currentURL = nil;
@@ -351,6 +375,12 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
         _sourceWidth = CVPixelBufferGetWidth(pixelBuffer);
         _sourceHeight = CVPixelBufferGetHeight(pixelBuffer);
         _state = @"receiving video frames";
+    }
+    if (link.timestamp - self.lastDiagnosticTime >= 15.0) {
+        self.lastDiagnosticTime = link.timestamp;
+        BolemeLog(@"运行中：输入 %.1f 帧/秒，送出 %.1f 帧/秒，延迟 %.1f 秒，重连 %lu 次",
+                  self.receivedFPS, self.replacedFPS, self.liveEdgeLag,
+                  (unsigned long)self.reconnectCount);
     }
 }
 
@@ -586,6 +616,9 @@ static float CBMeasureAudioLevel(CMSampleBufferRef sample, float *decibels) {
                 (unsigned int)description->mBitsPerChannel, description->mSampleRate];
         }
     }
+    if (receiver.microphoneSampleCount == 1) {
+        BolemeLog(@"检测到直播 App 麦克风采集：%@", receiver.microphoneFormat);
+    }
     id<AVCaptureAudioDataOutputSampleBufferDelegate> delegate = self.original;
     if ([delegate respondsToSelector:@selector(captureOutput:didOutputSampleBuffer:fromConnection:)]) {
         [delegate captureOutput:output didOutputSampleBuffer:sample fromConnection:connection];
@@ -643,6 +676,7 @@ static void CBSetDelegate(id output, SEL selector, id delegate, dispatch_queue_t
     proxy.original = delegate;
     objc_setAssociatedObject(output, &CBProxyAssociation, proxy, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     CBOriginalSetDelegate(output, selector, proxy, queue);
+    BolemeLog(@"已接管宿主 App 的摄像头回调");
     dispatch_async(dispatch_get_main_queue(), ^{
         [[BolemeLicenseManager shared] start];
         [[CBReceiver shared] startOnMainThread];
@@ -659,6 +693,7 @@ static void CBSetAudioDelegate(id output, SEL selector, id delegate, dispatch_qu
     proxy.original = delegate;
     objc_setAssociatedObject(output, &CBAudioProxyAssociation, proxy, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     CBOriginalSetAudioDelegate(output, selector, proxy, queue);
+    BolemeLog(@"已接管宿主 App 的麦克风回调");
     dispatch_async(dispatch_get_main_queue(), ^{
         [[BolemeLicenseManager shared] start];
         [[CBReceiver shared] startOnMainThread];

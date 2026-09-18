@@ -1,5 +1,6 @@
 #import "CameraBridge.h"
 #import "BolemeLicense.h"
+#import "BolemeDiagnostics.h"
 
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -104,6 +105,11 @@ static NSInteger const CBBubbleTag = 902174;
 @property (nonatomic, strong) UILabel *microphoneDetailLabel;
 @property (nonatomic, strong) UIProgressView *speakerMeter;
 @property (nonatomic, strong) UIProgressView *microphoneMeter;
+@property (nonatomic, strong) UIButton *diagnosticsDisclosureButton;
+@property (nonatomic, strong) UIStackView *diagnosticsPanel;
+@property (nonatomic, strong) UITextView *diagnosticsTextView;
+@property (nonatomic, strong) UIButton *copyDiagnosticsButton;
+@property (nonatomic, assign) BOOL diagnosticsExpanded;
 @property (nonatomic, strong) NSTimer *meterTimer;
 + (instancetype)shared;
 - (void)installIfNeeded;
@@ -290,7 +296,8 @@ static NSInteger const CBBubbleTag = 902174;
     [shade addSubview:card];
     self.card = card;
 
-    UILabel *title = [self label:@"播了么推流助手" size:19 color:UIColor.whiteColor];
+    UILabel *title = [self label:[NSString stringWithFormat:@"播了么推流助手  v%@", BolemePluginVersion]
+                              size:19 color:UIColor.whiteColor];
     title.font = [UIFont systemFontOfSize:19 weight:UIFontWeightSemibold];
     UILabel *dragHint = [self label:@"按住这里上下移动" size:11
                                   color:[UIColor colorWithWhite:1 alpha:0.55]];
@@ -465,14 +472,14 @@ static NSInteger const CBBubbleTag = 902174;
     UILabel *audioModeTitle = [self label:@"选择声音怎么走" size:13
                                       color:[UIColor colorWithWhite:1 alpha:0.62]];
     [audioModeTitle.heightAnchor constraintEqualToConstant:20].active = YES;
-    self.audioModeControl = [[UISegmentedControl alloc] initWithItems:@[@"静音", @"本机播放", @"外接内录"]];
+    self.audioModeControl = [[UISegmentedControl alloc] initWithItems:@[@"外放", @"硬件内录"]];
     NSInteger audioMode = [NSUserDefaults.standardUserDefaults integerForKey:CBAudioModeKey];
-    self.audioModeControl.selectedSegmentIndex = MAX(0, MIN(2, audioMode));
+    self.audioModeControl.selectedSegmentIndex = audioMode == 2 ? 1 : 0;
     self.audioModeControl.accessibilityLabel = @"OBS 音频输出方式";
     [self.audioModeControl addTarget:self action:@selector(changeAudioMode) forControlEvents:UIControlEventValueChanged];
     [self.audioModeControl.heightAnchor constraintEqualToConstant:36].active = YES;
 
-    self.audioModeLabel = [self label:@"默认静音；直播 App 继续使用真实麦克风" size:12
+    self.audioModeLabel = [self label:@"默认外放；直播 App 继续使用真实麦克风" size:12
                                      color:[UIColor colorWithWhite:1 alpha:0.68]];
     self.audioModeLabel.numberOfLines = 3;
     [self.audioModeLabel.heightAnchor constraintEqualToConstant:52].active = YES;
@@ -542,8 +549,51 @@ static NSInteger const CBBubbleTag = 902174;
     self.videoPanel.hidden = self.tabControl.selectedSegmentIndex != 0;
     self.audioPanel.hidden = self.tabControl.selectedSegmentIndex != 1;
 
+    self.diagnosticsDisclosureButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [self.diagnosticsDisclosureButton setTitle:@"查看运行诊断日志  ⌄" forState:UIControlStateNormal];
+    [self.diagnosticsDisclosureButton setTitleColor:[UIColor colorWithWhite:1 alpha:0.64]
+                                           forState:UIControlStateNormal];
+    self.diagnosticsDisclosureButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
+    self.diagnosticsDisclosureButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    self.diagnosticsDisclosureButton.accessibilityLabel = @"展开运行诊断日志";
+    [self.diagnosticsDisclosureButton addTarget:self action:@selector(toggleDiagnostics)
+                              forControlEvents:UIControlEventTouchUpInside];
+    [self.diagnosticsDisclosureButton.heightAnchor constraintEqualToConstant:30].active = YES;
+
+    UILabel *diagnosticsHint = [self label:@"出现卡顿、断流或闪退后，把这份日志发给技术支持。"
+                                         size:11 color:[UIColor colorWithWhite:1 alpha:0.58]];
+    diagnosticsHint.numberOfLines = 2;
+    [diagnosticsHint.heightAnchor constraintEqualToConstant:34].active = YES;
+    self.diagnosticsTextView = [UITextView new];
+    self.diagnosticsTextView.editable = NO;
+    self.diagnosticsTextView.selectable = YES;
+    self.diagnosticsTextView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.22];
+    self.diagnosticsTextView.textColor = [UIColor colorWithWhite:1 alpha:0.82];
+    self.diagnosticsTextView.font = [UIFont monospacedSystemFontOfSize:10 weight:UIFontWeightRegular];
+    self.diagnosticsTextView.layer.cornerRadius = 10;
+    self.diagnosticsTextView.textContainerInset = UIEdgeInsetsMake(10, 10, 10, 10);
+    self.diagnosticsTextView.accessibilityLabel = @"播了么运行诊断日志";
+    [self.diagnosticsTextView.heightAnchor constraintEqualToConstant:250].active = YES;
+    self.copyDiagnosticsButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [self.copyDiagnosticsButton setTitle:@"复制全部日志" forState:UIControlStateNormal];
+    [self.copyDiagnosticsButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    self.copyDiagnosticsButton.backgroundColor = [UIColor colorWithWhite:1 alpha:0.12];
+    self.copyDiagnosticsButton.layer.cornerRadius = 10;
+    self.copyDiagnosticsButton.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+    self.copyDiagnosticsButton.accessibilityLabel = @"复制全部诊断日志到剪贴板";
+    [self.copyDiagnosticsButton addTarget:self action:@selector(copyDiagnostics)
+                             forControlEvents:UIControlEventTouchUpInside];
+    [self.copyDiagnosticsButton.heightAnchor constraintEqualToConstant:40].active = YES;
+    self.diagnosticsPanel = [[UIStackView alloc] initWithArrangedSubviews:@[
+        diagnosticsHint, self.diagnosticsTextView, self.copyDiagnosticsButton
+    ]];
+    self.diagnosticsPanel.axis = UILayoutConstraintAxisVertical;
+    self.diagnosticsPanel.spacing = 8;
+    self.diagnosticsPanel.hidden = YES;
+
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        header, self.tabControl, self.videoPanel, self.audioPanel, self.licensePanel
+        header, self.tabControl, self.videoPanel, self.audioPanel, self.licensePanel,
+        self.diagnosticsDisclosureButton, self.diagnosticsPanel
     ]];
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 8;
@@ -598,6 +648,11 @@ static NSInteger const CBBubbleTag = 902174;
     self.microphoneMeter = nil;
     self.headerSpeakerIcon = nil;
     self.headerMicrophoneIcon = nil;
+    self.diagnosticsDisclosureButton = nil;
+    self.diagnosticsPanel = nil;
+    self.diagnosticsTextView = nil;
+    self.copyDiagnosticsButton = nil;
+    self.diagnosticsExpanded = NO;
 }
 
 - (BOOL)saveAddress {
@@ -643,6 +698,7 @@ static NSInteger const CBBubbleTag = 902174;
         return;
     }
     [NSUserDefaults.standardUserDefaults setBool:self.enabledSwitch.isOn forKey:CBEnabledKey];
+    BolemeLog(@"用户%@画面替换", self.enabledSwitch.isOn ? @"开启" : @"暂停");
     [self refreshStatus];
 }
 
@@ -651,6 +707,7 @@ static NSInteger const CBBubbleTag = 902174;
 }
 
 - (void)changeTab {
+    if (self.diagnosticsExpanded) return;
     NSInteger selected = self.tabControl.selectedSegmentIndex;
     self.videoPanel.hidden = selected != 0;
     self.audioPanel.hidden = selected != 1;
@@ -687,9 +744,47 @@ static NSInteger const CBBubbleTag = 902174;
 }
 
 - (void)changeAudioMode {
-    [NSUserDefaults.standardUserDefaults setInteger:self.audioModeControl.selectedSegmentIndex
-                                             forKey:CBAudioModeKey];
+    NSInteger audioMode = self.audioModeControl.selectedSegmentIndex == 1 ? 2 : 1;
+    [NSUserDefaults.standardUserDefaults setInteger:audioMode forKey:CBAudioModeKey];
+    BolemeLog(@"用户切换声音模式：%@", audioMode == 2 ? @"硬件内录" : @"外放");
     [self refreshStatus];
+}
+
+- (void)toggleDiagnostics {
+    self.diagnosticsExpanded = !self.diagnosticsExpanded;
+    self.tabControl.enabled = !self.diagnosticsExpanded;
+    if (self.diagnosticsExpanded) {
+        self.videoPanel.hidden = YES;
+        self.audioPanel.hidden = YES;
+        self.licensePanel.hidden = YES;
+        self.diagnosticsPanel.hidden = NO;
+        BolemeLog(@"用户打开诊断日志");
+        self.diagnosticsTextView.text = BolemeDiagnosticReport();
+        [self.diagnosticsDisclosureButton setTitle:@"收起运行诊断日志  ^" forState:UIControlStateNormal];
+        self.diagnosticsDisclosureButton.accessibilityLabel = @"收起运行诊断日志";
+    } else {
+        self.diagnosticsPanel.hidden = YES;
+        self.tabControl.enabled = YES;
+        [self.diagnosticsDisclosureButton setTitle:@"查看运行诊断日志  ⌄" forState:UIControlStateNormal];
+        self.diagnosticsDisclosureButton.accessibilityLabel = @"展开运行诊断日志";
+        [self changeTab];
+    }
+    [UIView animateWithDuration:0.16 animations:^{
+        [self.card.superview layoutIfNeeded];
+    }];
+}
+
+- (void)copyDiagnostics {
+    NSString *report = BolemeDiagnosticReport();
+    UIPasteboard.generalPasteboard.string = report;
+    self.diagnosticsTextView.text = report;
+    [self.copyDiagnosticsButton setTitle:@"已复制，可以直接发给技术支持" forState:UIControlStateNormal];
+    self.copyDiagnosticsButton.accessibilityLabel = @"诊断日志已复制";
+    BolemeLog(@"用户复制诊断日志");
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self.copyDiagnosticsButton setTitle:@"复制全部日志" forState:UIControlStateNormal];
+        self.copyDiagnosticsButton.accessibilityLabel = @"复制全部诊断日志到剪贴板";
+    });
 }
 
 - (BOOL)textFieldShouldReturn:(UITextField *)textField {
@@ -740,6 +835,7 @@ static NSInteger const CBBubbleTag = 902174;
     self.statusDot.backgroundColor = !license.isAuthorized ? amber : (fresh ? green : (enabled ? amber : UIColor.systemGrayColor));
     self.bubble.accessibilityValue = license.isAuthorized ? self.bubble.accessibilityValue : @"推流助手尚未激活";
     if (!self.shade) return;
+    if (self.diagnosticsExpanded) self.diagnosticsTextView.text = BolemeDiagnosticReport();
     [self refreshLicenseUI];
     NSString *state = snapshot[@"state"];
     NSString *headline = !enabled ? @"已暂停" : (fresh ? @"画面稳定" : @"正在缓冲 / 重连");

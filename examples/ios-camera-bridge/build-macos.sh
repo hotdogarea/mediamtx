@@ -38,10 +38,13 @@ xcrun --sdk iphoneos clang "${common_flags[@]}" -c \
   "$project_dir/CameraBridge/BridgeControls.m" -o "$object_dir/BridgeControls.o"
 xcrun --sdk iphoneos clang "${common_flags[@]}" -c \
   "$project_dir/CameraBridge/BolemeLicense.m" -o "$object_dir/BolemeLicense.o"
+xcrun --sdk iphoneos clang "${common_flags[@]}" -c \
+  "$project_dir/CameraBridge/BolemeDiagnostics.m" -o "$object_dir/BolemeDiagnostics.o"
 xcrun --sdk iphoneos swiftc -emit-library -parse-as-library \
   -target arm64-apple-ios14.0 -sdk "$sdk_path" \
   "$project_dir/CameraBridge/BolemeCrypto.swift" \
   "$object_dir/CameraBridge.o" "$object_dir/BridgeControls.o" "$object_dir/BolemeLicense.o" \
+  "$object_dir/BolemeDiagnostics.o" \
   -framework Foundation -framework UIKit -framework AVFoundation \
   -framework CoreMedia -framework CoreVideo -framework CoreImage -framework CoreGraphics \
   -framework QuartzCore -framework Security \
