@@ -152,6 +152,7 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
 @property (nonatomic, assign) float microphoneDB;
 @property (nonatomic, assign) CFAbsoluteTime latestMicrophoneSampleTime;
 @property (nonatomic, assign) NSUInteger microphoneSampleCount;
+@property (nonatomic, copy) NSString *microphoneFormat;
 @property (nonatomic, assign) CFTimeInterval lastControlCheck;
 @property (nonatomic, assign) CFAbsoluteTime lastConnectTime;
 @property (nonatomic, assign) CFAbsoluteTime retryAfter;
@@ -186,6 +187,7 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
         _audioInputName = @"未检测到";
         _audioOutputName = @"未检测到";
         _microphoneDB = -60.0f;
+        _microphoneFormat = @"未知格式";
     }
     return self;
 }
@@ -484,41 +486,65 @@ static float CBMeasureAudioLevel(CMSampleBufferRef sample, float *decibels) {
     UInt32 bits = description->mBitsPerChannel;
     BOOL floatingPoint = (description->mFormatFlags & kAudioFormatFlagIsFloat) != 0;
     BOOL signedInteger = (description->mFormatFlags & kAudioFormatFlagIsSignedInteger) != 0;
+    BOOL bigEndian = (description->mFormatFlags & kAudioFormatFlagIsBigEndian) != 0;
+    BOOL alignedHigh = (description->mFormatFlags & kAudioFormatFlagIsAlignedHigh) != 0;
+    BOOL nonInterleaved = (description->mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0;
     for (UInt32 bufferIndex = 0; bufferIndex < buffers->mNumberBuffers; bufferIndex++) {
         AudioBuffer audioBuffer = buffers->mBuffers[bufferIndex];
         if (!audioBuffer.mData || !audioBuffer.mDataByteSize) continue;
-        if (floatingPoint && bits == 32) {
-            float *values = audioBuffer.mData;
-            NSUInteger valueCount = audioBuffer.mDataByteSize / sizeof(float);
-            for (NSUInteger index = 0; index < valueCount; index++) {
-                double value = MAX(-1.0, MIN(1.0, values[index]));
-                sum += value * value;
+        UInt32 channels = MAX(1, audioBuffer.mNumberChannels);
+        UInt32 bytesPerSample = description->mBytesPerFrame;
+        if (!nonInterleaved && channels > 1) bytesPerSample /= channels;
+        if (!bytesPerSample) bytesPerSample = (bits + 7) / 8;
+        if (!bytesPerSample || bytesPerSample > 8) continue;
+        NSUInteger valueCount = audioBuffer.mDataByteSize / bytesPerSample;
+        const uint8_t *bytes = audioBuffer.mData;
+        for (NSUInteger index = 0; index < valueCount; index++) {
+            const uint8_t *valueBytes = bytes + index * bytesPerSample;
+            double value = 0;
+            if (floatingPoint && bits == 32 && bytesPerSample >= 4) {
+                uint32_t raw = 0;
+                memcpy(&raw, valueBytes, sizeof(raw));
+                if (bigEndian) raw = CFSwapInt32BigToHost(raw);
+                float sampleValue = 0;
+                memcpy(&sampleValue, &raw, sizeof(sampleValue));
+                value = sampleValue;
+            } else if (floatingPoint && bits == 64 && bytesPerSample >= 8) {
+                uint64_t raw = 0;
+                memcpy(&raw, valueBytes, sizeof(raw));
+                if (bigEndian) raw = CFSwapInt64BigToHost(raw);
+                double sampleValue = 0;
+                memcpy(&sampleValue, &raw, sizeof(sampleValue));
+                value = sampleValue;
+            } else if (bits <= 32 && bytesPerSample <= 4) {
+                uint32_t raw = 0;
+                if (bigEndian) {
+                    for (UInt32 byteIndex = 0; byteIndex < bytesPerSample; byteIndex++) {
+                        raw = (raw << 8) | valueBytes[byteIndex];
+                    }
+                } else {
+                    for (UInt32 byteIndex = 0; byteIndex < bytesPerSample; byteIndex++) {
+                        raw |= ((uint32_t)valueBytes[byteIndex]) << (8 * byteIndex);
+                    }
+                }
+                UInt32 containerBits = bytesPerSample * 8;
+                if (alignedHigh && containerBits > bits) raw >>= (containerBits - bits);
+                if (bits < 32) raw &= (1u << bits) - 1u;
+                double scale = ldexp(1.0, (int)bits - 1);
+                if (signedInteger) {
+                    int32_t signedValue = bits == 32 ? (int32_t)raw
+                        : ((int32_t)(raw << (32 - bits)) >> (32 - bits));
+                    value = signedValue / scale;
+                } else {
+                    value = ((double)raw - scale) / scale;
+                }
+            } else {
+                continue;
             }
-            count += valueCount;
-        } else if (floatingPoint && bits == 64) {
-            double *values = audioBuffer.mData;
-            NSUInteger valueCount = audioBuffer.mDataByteSize / sizeof(double);
-            for (NSUInteger index = 0; index < valueCount; index++) {
-                double value = MAX(-1.0, MIN(1.0, values[index]));
-                sum += value * value;
-            }
-            count += valueCount;
-        } else if (signedInteger && bits == 16) {
-            int16_t *values = audioBuffer.mData;
-            NSUInteger valueCount = audioBuffer.mDataByteSize / sizeof(int16_t);
-            for (NSUInteger index = 0; index < valueCount; index++) {
-                double value = values[index] / 32768.0;
-                sum += value * value;
-            }
-            count += valueCount;
-        } else if (signedInteger && bits == 32) {
-            int32_t *values = audioBuffer.mData;
-            NSUInteger valueCount = audioBuffer.mDataByteSize / sizeof(int32_t);
-            for (NSUInteger index = 0; index < valueCount; index++) {
-                double value = values[index] / 2147483648.0;
-                sum += value * value;
-            }
-            count += valueCount;
+            if (!isfinite(value)) continue;
+            value = MAX(-1.0, MIN(1.0, value));
+            sum += value * value;
+            count++;
         }
     }
     if (retainedBlock) CFRelease(retainedBlock);
@@ -544,6 +570,9 @@ static float CBMeasureAudioLevel(CMSampleBufferRef sample, float *decibels) {
     float decibels = -60.0f;
     float measuredLevel = CBMeasureAudioLevel(sample, &decibels);
     CBReceiver *receiver = [CBReceiver shared];
+    CMFormatDescriptionRef format = CMSampleBufferGetFormatDescription(sample);
+    const AudioStreamBasicDescription *description = format
+        ? CMAudioFormatDescriptionGetStreamBasicDescription(format) : NULL;
     @synchronized (receiver) {
         float previous = receiver.microphoneLevel;
         receiver.microphoneLevel = measuredLevel >= previous
@@ -551,6 +580,10 @@ static float CBMeasureAudioLevel(CMSampleBufferRef sample, float *decibels) {
         receiver.microphoneDB = decibels;
         receiver.latestMicrophoneSampleTime = CFAbsoluteTimeGetCurrent();
         receiver.microphoneSampleCount++;
+        if (description) {
+            receiver.microphoneFormat = [NSString stringWithFormat:@"%u 位 · %.0f Hz",
+                (unsigned int)description->mBitsPerChannel, description->mSampleRate];
+        }
     }
     id<AVCaptureAudioDataOutputSampleBufferDelegate> delegate = self.original;
     if ([delegate respondsToSelector:@selector(captureOutput:didOutputSampleBuffer:fromConnection:)]) {
@@ -663,6 +696,7 @@ NSDictionary<NSString *, id> *CBStatusSnapshot(void) {
                   @"microphoneDB": @(receiver.microphoneDB),
                   @"microphoneAge": @(microphoneAge),
                   @"microphoneSamples": @(receiver.microphoneSampleCount),
+                  @"microphoneFormat": receiver.microphoneFormat ?: @"未知格式",
                   @"liveEdgeLag": @(receiver.liveEdgeLag),
                   @"peakLiveEdgeLag": @(receiver.peakLiveEdgeLag),
                   @"playerStalls": @(receiver.playerStalls),
