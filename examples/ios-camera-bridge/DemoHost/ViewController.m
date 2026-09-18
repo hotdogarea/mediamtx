@@ -10,7 +10,7 @@
 #import <CoreImage/CoreImage.h>
 #import <QuartzCore/QuartzCore.h>
 
-@interface ViewController () <AVCaptureVideoDataOutputSampleBufferDelegate>
+@interface ViewController () <AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate>
 @property (nonatomic, strong) AVCaptureSession *session;
 @property (nonatomic, strong) CIContext *context;
 @property (nonatomic, strong) UIImageView *imageView;
@@ -76,13 +76,24 @@
 - (void)requestCamera {
     AVAuthorizationStatus status = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo];
     if (status == AVAuthorizationStatusAuthorized) {
-        [self configureCamera];
+        [self requestMicrophoneThenConfigure];
     } else if (status == AVAuthorizationStatusNotDetermined) {
         [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL granted) {
-            if (granted) [self configureCamera];
+            if (granted) [self requestMicrophoneThenConfigure];
         }];
     } else {
         dispatch_async(dispatch_get_main_queue(), ^{ self.statusLabel.text = @"请在系统设置中允许此 App 使用摄像头"; });
+    }
+}
+
+- (void)requestMicrophoneThenConfigure {
+    AVAuthorizationStatus status = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio];
+    if (status == AVAuthorizationStatusNotDetermined) {
+        [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(__unused BOOL granted) {
+            [self configureCamera];
+        }];
+    } else {
+        [self configureCamera];
     }
 }
 
@@ -95,6 +106,12 @@
         AVCaptureSession *session = [AVCaptureSession new];
         session.sessionPreset = AVCaptureSessionPreset1280x720;
         if ([session canAddInput:input]) [session addInput:input];
+        if ([AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio] == AVAuthorizationStatusAuthorized) {
+            AVCaptureDevice *microphone = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
+            AVCaptureDeviceInput *microphoneInput = microphone
+                ? [AVCaptureDeviceInput deviceInputWithDevice:microphone error:NULL] : nil;
+            if (microphoneInput && [session canAddInput:microphoneInput]) [session addInput:microphoneInput];
+        }
         AVCaptureVideoDataOutput *output = [AVCaptureVideoDataOutput new];
         output.videoSettings = @{(id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA)};
         output.alwaysDiscardsLateVideoFrames = YES;
@@ -103,12 +120,20 @@
         if (connection.isVideoOrientationSupported) connection.videoOrientation = AVCaptureVideoOrientationPortrait;
         dispatch_queue_t queue = dispatch_queue_create("camera-bridge.preview", DISPATCH_QUEUE_SERIAL);
         [output setSampleBufferDelegate:self queue:queue];
+        if ([AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio] == AVAuthorizationStatusAuthorized) {
+            AVCaptureAudioDataOutput *audioOutput = [AVCaptureAudioDataOutput new];
+            if ([session canAddOutput:audioOutput]) {
+                [session addOutput:audioOutput];
+                [audioOutput setSampleBufferDelegate:self queue:queue];
+            }
+        }
         self.session = session;
         [session startRunning];
     });
 }
 
 - (void)captureOutput:(AVCaptureOutput *)output didOutputSampleBuffer:(CMSampleBufferRef)sample fromConnection:(AVCaptureConnection *)connection {
+    if ([output isKindOfClass:AVCaptureAudioDataOutput.class]) return;
     CFTimeInterval now = CACurrentMediaTime();
     if (now - self.lastPreviewTime < 0.10) return; // Avoid UI work on every camera frame.
     self.lastPreviewTime = now;
