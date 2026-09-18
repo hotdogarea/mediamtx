@@ -1,0 +1,26 @@
+name: CameraBridgeDemo
+options:
+  deploymentTarget:
+    iOS: "14.0"
+targets:
+  CameraBridgeDemo:
+    type: application
+    platform: iOS
+    sources:
+      - path: DemoHost
+        excludes:
+          - Info.plist
+      - path: CameraBridge
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.CameraBridgeDemo
+        INFOPLIST_FILE: DemoHost/Info.plist
+        HEADER_SEARCH_PATHS: "$(SRCROOT)/CameraBridge"
+        TARGETED_DEVICE_FAMILY: "1"
+        CLANG_ENABLE_OBJC_ARC: YES
+        CODE_SIGN_STYLE: Automatic
+schemes:
+  CameraBridgeDemo:
+    build:
+      targets:
+        CameraBridgeDemo: all

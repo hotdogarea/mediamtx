@@ -1,0 +1,19 @@
+name: iOS Camera Bridge demo
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Build unsigned test app and injection dylib
+        run: bash examples/ios-camera-bridge/build-macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-camera-bridge-demo
+          path: |
+            examples/ios-camera-bridge/out/CameraBridgeDemo.ipa
+            examples/ios-camera-bridge/out/CameraBridge.dylib
