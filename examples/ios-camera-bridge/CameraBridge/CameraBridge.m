@@ -1,10 +1,12 @@
 #import "CameraBridge.h"
 
 #import <AVFoundation/AVFoundation.h>
+#import <AudioToolbox/AudioToolbox.h>
 #import <CoreImage/CoreImage.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import <math.h>
+#import <stdlib.h>
 #import <string.h>
 
 NSString * const CBStreamURLKey = @"CameraBridge.StreamURL";
@@ -144,6 +146,10 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
 @property (nonatomic, assign) BOOL audioActuallyPlaying;
 @property (nonatomic, copy) NSString *audioInputName;
 @property (nonatomic, copy) NSString *audioOutputName;
+@property (nonatomic, assign) float microphoneLevel;
+@property (nonatomic, assign) float microphoneDB;
+@property (nonatomic, assign) CFAbsoluteTime latestMicrophoneSampleTime;
+@property (nonatomic, assign) NSUInteger microphoneSampleCount;
 @property (nonatomic, assign) CFTimeInterval lastControlCheck;
 @property (nonatomic, assign) CFAbsoluteTime lastConnectTime;
 @property (nonatomic, assign) CFAbsoluteTime retryAfter;
@@ -177,6 +183,7 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
         _droppedFrames = -1;
         _audioInputName = @"未检测到";
         _audioOutputName = @"未检测到";
+        _microphoneDB = -60.0f;
     }
     return self;
 }
@@ -446,6 +453,109 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
 
 @end
 
+static float CBMeasureAudioLevel(CMSampleBufferRef sample, float *decibels) {
+    CMFormatDescriptionRef format = CMSampleBufferGetFormatDescription(sample);
+    const AudioStreamBasicDescription *description = format
+        ? CMAudioFormatDescriptionGetStreamBasicDescription(format) : NULL;
+    if (!description || description->mFormatID != kAudioFormatLinearPCM || description->mBitsPerChannel == 0) {
+        if (decibels) *decibels = -60.0f;
+        return 0;
+    }
+
+    size_t listSize = sizeof(AudioBufferList) + sizeof(AudioBuffer) * 7;
+    AudioBufferList *buffers = malloc(listSize);
+    if (!buffers) return 0;
+    CMBlockBufferRef retainedBlock = NULL;
+    OSStatus status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+        sample, NULL, buffers, listSize, NULL, NULL,
+        kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, &retainedBlock);
+    if (status != noErr) {
+        free(buffers);
+        if (retainedBlock) CFRelease(retainedBlock);
+        return 0;
+    }
+
+    double sum = 0;
+    NSUInteger count = 0;
+    UInt32 bits = description->mBitsPerChannel;
+    BOOL floatingPoint = (description->mFormatFlags & kAudioFormatFlagIsFloat) != 0;
+    BOOL signedInteger = (description->mFormatFlags & kAudioFormatFlagIsSignedInteger) != 0;
+    for (UInt32 bufferIndex = 0; bufferIndex < buffers->mNumberBuffers; bufferIndex++) {
+        AudioBuffer audioBuffer = buffers->mBuffers[bufferIndex];
+        if (!audioBuffer.mData || !audioBuffer.mDataByteSize) continue;
+        if (floatingPoint && bits == 32) {
+            float *values = audioBuffer.mData;
+            NSUInteger valueCount = audioBuffer.mDataByteSize / sizeof(float);
+            for (NSUInteger index = 0; index < valueCount; index++) {
+                double value = MAX(-1.0, MIN(1.0, values[index]));
+                sum += value * value;
+            }
+            count += valueCount;
+        } else if (floatingPoint && bits == 64) {
+            double *values = audioBuffer.mData;
+            NSUInteger valueCount = audioBuffer.mDataByteSize / sizeof(double);
+            for (NSUInteger index = 0; index < valueCount; index++) {
+                double value = MAX(-1.0, MIN(1.0, values[index]));
+                sum += value * value;
+            }
+            count += valueCount;
+        } else if (signedInteger && bits == 16) {
+            int16_t *values = audioBuffer.mData;
+            NSUInteger valueCount = audioBuffer.mDataByteSize / sizeof(int16_t);
+            for (NSUInteger index = 0; index < valueCount; index++) {
+                double value = values[index] / 32768.0;
+                sum += value * value;
+            }
+            count += valueCount;
+        } else if (signedInteger && bits == 32) {
+            int32_t *values = audioBuffer.mData;
+            NSUInteger valueCount = audioBuffer.mDataByteSize / sizeof(int32_t);
+            for (NSUInteger index = 0; index < valueCount; index++) {
+                double value = values[index] / 2147483648.0;
+                sum += value * value;
+            }
+            count += valueCount;
+        }
+    }
+    if (retainedBlock) CFRelease(retainedBlock);
+    free(buffers);
+    if (!count) {
+        if (decibels) *decibels = -60.0f;
+        return 0;
+    }
+    double rms = sqrt(sum / count);
+    float db = rms > 0.000001 ? (float)(20.0 * log10(rms)) : -60.0f;
+    db = MAX(-60.0f, MIN(0.0f, db));
+    if (decibels) *decibels = db;
+    return (db + 60.0f) / 60.0f;
+}
+
+@interface CBAudioDelegateProxy : NSObject <AVCaptureAudioDataOutputSampleBufferDelegate>
+@property (nonatomic, strong) id<AVCaptureAudioDataOutputSampleBufferDelegate> original;
+@end
+
+@implementation CBAudioDelegateProxy
+
+- (void)captureOutput:(AVCaptureOutput *)output didOutputSampleBuffer:(CMSampleBufferRef)sample fromConnection:(AVCaptureConnection *)connection {
+    float decibels = -60.0f;
+    float measuredLevel = CBMeasureAudioLevel(sample, &decibels);
+    CBReceiver *receiver = [CBReceiver shared];
+    @synchronized (receiver) {
+        float previous = receiver.microphoneLevel;
+        receiver.microphoneLevel = measuredLevel >= previous
+            ? measuredLevel : previous * 0.82f + measuredLevel * 0.18f;
+        receiver.microphoneDB = decibels;
+        receiver.latestMicrophoneSampleTime = CFAbsoluteTimeGetCurrent();
+        receiver.microphoneSampleCount++;
+    }
+    id<AVCaptureAudioDataOutputSampleBufferDelegate> delegate = self.original;
+    if ([delegate respondsToSelector:@selector(captureOutput:didOutputSampleBuffer:fromConnection:)]) {
+        [delegate captureOutput:output didOutputSampleBuffer:sample fromConnection:connection];
+    }
+}
+
+@end
+
 @interface CBDelegateProxy : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate>
 @property (nonatomic, strong) id<AVCaptureVideoDataOutputSampleBufferDelegate> original;
 @end
@@ -480,7 +590,9 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
 @end
 
 static char CBProxyAssociation;
+static char CBAudioProxyAssociation;
 static void (*CBOriginalSetDelegate)(id, SEL, id, dispatch_queue_t);
+static void (*CBOriginalSetAudioDelegate)(id, SEL, id, dispatch_queue_t);
 
 static void CBSetDelegate(id output, SEL selector, id delegate, dispatch_queue_t queue) {
     if (!delegate) {
@@ -492,6 +604,19 @@ static void CBSetDelegate(id output, SEL selector, id delegate, dispatch_queue_t
     proxy.original = delegate;
     objc_setAssociatedObject(output, &CBProxyAssociation, proxy, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     CBOriginalSetDelegate(output, selector, proxy, queue);
+    dispatch_async(dispatch_get_main_queue(), ^{ [[CBReceiver shared] startOnMainThread]; });
+}
+
+static void CBSetAudioDelegate(id output, SEL selector, id delegate, dispatch_queue_t queue) {
+    if (!delegate) {
+        objc_setAssociatedObject(output, &CBAudioProxyAssociation, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        CBOriginalSetAudioDelegate(output, selector, nil, queue);
+        return;
+    }
+    CBAudioDelegateProxy *proxy = [CBAudioDelegateProxy new];
+    proxy.original = delegate;
+    objc_setAssociatedObject(output, &CBAudioProxyAssociation, proxy, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    CBOriginalSetAudioDelegate(output, selector, proxy, queue);
     dispatch_async(dispatch_get_main_queue(), ^{ [[CBReceiver shared] startOnMainThread]; });
 }
 
@@ -507,6 +632,9 @@ NSDictionary<NSString *, id> *CBStatusSnapshot(void) {
             (pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange ? @"NV12 full" :
             (pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange ? @"NV12 video" :
             [NSString stringWithFormat:@"0x%08x", (unsigned int)pixelFormat]));
+        CFTimeInterval microphoneAge = receiver.latestMicrophoneSampleTime > 0
+            ? CFAbsoluteTimeGetCurrent() - receiver.latestMicrophoneSampleTime : -1;
+        float microphoneLevel = microphoneAge >= 0 && microphoneAge < 0.5 ? receiver.microphoneLevel : 0;
         return @{ @"state": receiver.state ?: @"unknown",
                   @"frames": @(receiver.replacedCount),
                   @"receivedFrames": @(receiver.receivedCount),
@@ -525,6 +653,10 @@ NSDictionary<NSString *, id> *CBStatusSnapshot(void) {
                   @"audioActuallyPlaying": @(receiver.audioActuallyPlaying),
                   @"audioInputName": receiver.audioInputName ?: @"未检测到",
                   @"audioOutputName": receiver.audioOutputName ?: @"未检测到",
+                  @"microphoneLevel": @(microphoneLevel),
+                  @"microphoneDB": @(receiver.microphoneDB),
+                  @"microphoneAge": @(microphoneAge),
+                  @"microphoneSamples": @(receiver.microphoneSampleCount),
                   @"liveEdgeLag": @(receiver.liveEdgeLag),
                   @"peakLiveEdgeLag": @(receiver.peakLiveEdgeLag),
                   @"playerStalls": @(receiver.playerStalls),
@@ -538,8 +670,14 @@ NSDictionary<NSString *, id> *CBStatusSnapshot(void) {
 
 __attribute__((constructor)) static void CBInstallHook(void) {
     Method method = class_getInstanceMethod(AVCaptureVideoDataOutput.class, @selector(setSampleBufferDelegate:queue:));
-    if (!method) return;
-    CBOriginalSetDelegate = (void *)method_getImplementation(method);
-    method_setImplementation(method, (IMP)CBSetDelegate);
+    if (method) {
+        CBOriginalSetDelegate = (void *)method_getImplementation(method);
+        method_setImplementation(method, (IMP)CBSetDelegate);
+    }
+    Method audioMethod = class_getInstanceMethod(AVCaptureAudioDataOutput.class, @selector(setSampleBufferDelegate:queue:));
+    if (audioMethod) {
+        CBOriginalSetAudioDelegate = (void *)method_getImplementation(audioMethod);
+        method_setImplementation(audioMethod, (IMP)CBSetAudioDelegate);
+    }
     dispatch_async(dispatch_get_main_queue(), ^{ [[CBReceiver shared] startOnMainThread]; });
 }

@@ -25,6 +25,15 @@ static NSInteger const CBBubbleTag = 902174;
 @property (nonatomic, strong) UILabel *audioModeLabel;
 @property (nonatomic, strong) UILabel *audioRouteLabel;
 @property (nonatomic, strong) UILabel *audioWarningLabel;
+@property (nonatomic, strong) UIImageView *speakerIcon;
+@property (nonatomic, strong) UIImageView *microphoneIcon;
+@property (nonatomic, strong) UILabel *speakerTitleLabel;
+@property (nonatomic, strong) UILabel *speakerDetailLabel;
+@property (nonatomic, strong) UILabel *microphoneTitleLabel;
+@property (nonatomic, strong) UILabel *microphoneDetailLabel;
+@property (nonatomic, strong) UIProgressView *speakerMeter;
+@property (nonatomic, strong) UIProgressView *microphoneMeter;
+@property (nonatomic, strong) NSTimer *meterTimer;
 + (instancetype)shared;
 - (void)installIfNeeded;
 @end
@@ -55,6 +64,8 @@ static NSInteger const CBBubbleTag = 902174;
     UIWindow *window = [self activeWindow];
     if (!window) return;
     if (window != self.hostWindow || !self.bubble) {
+        [self.meterTimer invalidate];
+        self.meterTimer = nil;
         [self.shade removeFromSuperview];
         self.shade = nil;
         [self.bubble removeFromSuperview];
@@ -260,6 +271,61 @@ static NSInteger const CBBubbleTag = 902174;
     self.audioLabel.numberOfLines = 2;
     [self.audioLabel.heightAnchor constraintEqualToConstant:42].active = YES;
 
+    UIColor *accent = [UIColor colorWithRed:0.22 green:0.78 blue:0.62 alpha:1];
+    UIImageSymbolConfiguration *symbolStyle = [UIImageSymbolConfiguration configurationWithPointSize:23
+                                                                                              weight:UIImageSymbolWeightSemibold];
+    self.speakerIcon = [[UIImageView alloc] initWithImage:[[UIImage systemImageNamed:@"speaker.wave.2.fill"]
+                                                           imageWithConfiguration:symbolStyle]];
+    self.speakerIcon.tintColor = UIColor.systemGrayColor;
+    self.speakerIcon.contentMode = UIViewContentModeScaleAspectFit;
+    self.speakerIcon.accessibilityLabel = @"OBS 音频输出";
+    [self.speakerIcon.widthAnchor constraintEqualToConstant:34].active = YES;
+    [self.speakerIcon.heightAnchor constraintEqualToConstant:34].active = YES;
+    self.speakerTitleLabel = [self label:@"OBS 输出 · 未检测到" size:13 color:UIColor.whiteColor];
+    self.speakerTitleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    self.speakerDetailLabel = [self label:@"等待音轨" size:11 color:[UIColor colorWithWhite:1 alpha:0.58]];
+    self.speakerMeter = [UIProgressView new];
+    self.speakerMeter.trackTintColor = [UIColor colorWithWhite:1 alpha:0.10];
+    self.speakerMeter.progressTintColor = accent;
+    self.speakerMeter.transform = CGAffineTransformMakeScale(1, 1.8);
+    self.speakerMeter.accessibilityLabel = @"OBS 音轨数据状态";
+    UIStackView *speakerInfo = [[UIStackView alloc] initWithArrangedSubviews:@[
+        self.speakerTitleLabel, self.speakerDetailLabel, self.speakerMeter
+    ]];
+    speakerInfo.axis = UILayoutConstraintAxisVertical;
+    speakerInfo.spacing = 3;
+    UIStackView *speakerRow = [[UIStackView alloc] initWithArrangedSubviews:@[self.speakerIcon, speakerInfo]];
+    speakerRow.axis = UILayoutConstraintAxisHorizontal;
+    speakerRow.alignment = UIStackViewAlignmentCenter;
+    speakerRow.spacing = 10;
+    [speakerRow.heightAnchor constraintEqualToConstant:56].active = YES;
+
+    self.microphoneIcon = [[UIImageView alloc] initWithImage:[[UIImage systemImageNamed:@"mic.fill"]
+                                                              imageWithConfiguration:symbolStyle]];
+    self.microphoneIcon.tintColor = UIColor.systemGrayColor;
+    self.microphoneIcon.contentMode = UIViewContentModeScaleAspectFit;
+    self.microphoneIcon.accessibilityLabel = @"直播 App 麦克风输入";
+    [self.microphoneIcon.widthAnchor constraintEqualToConstant:34].active = YES;
+    [self.microphoneIcon.heightAnchor constraintEqualToConstant:34].active = YES;
+    self.microphoneTitleLabel = [self label:@"麦克风输入 · 未检测到" size:13 color:UIColor.whiteColor];
+    self.microphoneTitleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    self.microphoneDetailLabel = [self label:@"等待 App 麦克风采样" size:11 color:[UIColor colorWithWhite:1 alpha:0.58]];
+    self.microphoneMeter = [UIProgressView new];
+    self.microphoneMeter.trackTintColor = [UIColor colorWithWhite:1 alpha:0.10];
+    self.microphoneMeter.progressTintColor = accent;
+    self.microphoneMeter.transform = CGAffineTransformMakeScale(1, 1.8);
+    self.microphoneMeter.accessibilityLabel = @"麦克风实时输入电平";
+    UIStackView *microphoneInfo = [[UIStackView alloc] initWithArrangedSubviews:@[
+        self.microphoneTitleLabel, self.microphoneDetailLabel, self.microphoneMeter
+    ]];
+    microphoneInfo.axis = UILayoutConstraintAxisVertical;
+    microphoneInfo.spacing = 3;
+    UIStackView *microphoneRow = [[UIStackView alloc] initWithArrangedSubviews:@[self.microphoneIcon, microphoneInfo]];
+    microphoneRow.axis = UILayoutConstraintAxisHorizontal;
+    microphoneRow.alignment = UIStackViewAlignmentCenter;
+    microphoneRow.spacing = 10;
+    [microphoneRow.heightAnchor constraintEqualToConstant:56].active = YES;
+
     UILabel *audioModeTitle = [self label:@"声音输出方式" size:13
                                       color:[UIColor colorWithWhite:1 alpha:0.62]];
     [audioModeTitle.heightAnchor constraintEqualToConstant:20].active = YES;
@@ -274,18 +340,14 @@ static NSInteger const CBBubbleTag = 902174;
                                      color:[UIColor colorWithWhite:1 alpha:0.68]];
     self.audioModeLabel.numberOfLines = 3;
     [self.audioModeLabel.heightAnchor constraintEqualToConstant:52].active = YES;
-    self.audioRouteLabel = [self label:@"输入：未检测到\n输出：未检测到" size:12
-                                      color:[UIColor colorWithWhite:1 alpha:0.68]];
-    self.audioRouteLabel.numberOfLines = 2;
-    [self.audioRouteLabel.heightAnchor constraintEqualToConstant:38].active = YES;
     self.audioWarningLabel = [self label:@"这里控制的是音轨播放，不是软件麦克风注入。" size:11
                                         color:UIColor.systemOrangeColor];
     self.audioWarningLabel.numberOfLines = 3;
     [self.audioWarningLabel.heightAnchor constraintEqualToConstant:48].active = YES;
 
     self.audioPanel = [[UIStackView alloc] initWithArrangedSubviews:@[
-        self.audioLabel, audioModeTitle, self.audioModeControl, self.audioModeLabel,
-        self.audioRouteLabel, self.audioWarningLabel
+        self.audioLabel, speakerRow, microphoneRow, audioModeTitle, self.audioModeControl,
+        self.audioModeLabel, self.audioWarningLabel
     ]];
     self.audioPanel.axis = UILayoutConstraintAxisVertical;
     self.audioPanel.spacing = 8;
@@ -307,12 +369,17 @@ static NSInteger const CBBubbleTag = 902174;
         [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-16],
         [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-14]
     ]];
+    self.meterTimer = [NSTimer timerWithTimeInterval:0.08 target:self selector:@selector(refreshMeters)
+                                            userInfo:nil repeats:YES];
+    [NSRunLoop.mainRunLoop addTimer:self.meterTimer forMode:NSRunLoopCommonModes];
     [self refreshStatus];
 }
 
 - (void)closePanel {
     [self saveAddress];
     [self.addressField resignFirstResponder];
+    [self.meterTimer invalidate];
+    self.meterTimer = nil;
     [self.shade removeFromSuperview];
     self.shade = nil;
     self.card = nil;
@@ -330,6 +397,14 @@ static NSInteger const CBBubbleTag = 902174;
     self.audioModeLabel = nil;
     self.audioRouteLabel = nil;
     self.audioWarningLabel = nil;
+    self.speakerIcon = nil;
+    self.microphoneIcon = nil;
+    self.speakerTitleLabel = nil;
+    self.speakerDetailLabel = nil;
+    self.microphoneTitleLabel = nil;
+    self.microphoneDetailLabel = nil;
+    self.speakerMeter = nil;
+    self.microphoneMeter = nil;
 }
 
 - (BOOL)saveAddress {
@@ -449,8 +524,7 @@ static NSInteger const CBBubbleTag = 902174;
     BOOL audioPlaying = [snapshot[@"audioActuallyPlaying"] boolValue];
     self.audioLabel.text = [NSString stringWithFormat:@"OBS 音轨：%@\n当前：%@",
         audioState, audioPlaying ? @"正在输出音频" : @"没有输出音频"];
-    self.audioRouteLabel.text = [NSString stringWithFormat:@"输入：%@\n输出：%@",
-        snapshot[@"audioInputName"], snapshot[@"audioOutputName"]];
+    [self refreshMetersWithSnapshot:snapshot];
     if (audioMode == 1) {
         self.audioModeLabel.text = @"按 iOS 当前系统音频路线播放，可能是扬声器、听筒或耳机；不会直接变成直播 App 的麦克风。";
         self.audioModeLabel.textColor = [UIColor colorWithWhite:1 alpha:0.68];
@@ -466,6 +540,49 @@ static NSInteger const CBBubbleTag = 902174;
         self.audioModeLabel.textColor = [UIColor colorWithWhite:1 alpha:0.68];
         self.audioWarningLabel.text = @"不插外接硬件时，插件不会把 OBS 声音直接注入其他 App 的麦克风。";
     }
+}
+
+- (void)refreshMeters {
+    if (!self.shade || self.audioPanel.hidden) return;
+    [self refreshMetersWithSnapshot:CBStatusSnapshot()];
+}
+
+- (void)refreshMetersWithSnapshot:(NSDictionary<NSString *, id> *)snapshot {
+    if (!self.speakerMeter || !self.microphoneMeter) return;
+    UIColor *green = [UIColor colorWithRed:0.22 green:0.78 blue:0.62 alpha:1];
+    BOOL trackDetected = [snapshot[@"audioTrackDetected"] boolValue];
+    BOOL audioPlaying = [snapshot[@"audioActuallyPlaying"] boolValue];
+    double audioBitrate = [snapshot[@"audioBitrate"] doubleValue];
+    NSString *outputName = snapshot[@"audioOutputName"] ?: @"未检测到";
+    self.speakerTitleLabel.text = [NSString stringWithFormat:@"OBS 输出 · %@", outputName];
+    if (!trackDetected) {
+        self.speakerDetailLabel.text = @"没有检测到 OBS 音轨";
+    } else if (!audioPlaying) {
+        self.speakerDetailLabel.text = @"音轨存在 · 当前静音";
+    } else if (audioBitrate > 0) {
+        self.speakerDetailLabel.text = [NSString stringWithFormat:@"正在发送 · %.0f kb/s（数据量）", audioBitrate / 1000.0];
+    } else {
+        self.speakerDetailLabel.text = @"正在发送 · 码率读取中";
+    }
+    float outputActivity = audioPlaying && trackDetected
+        ? (audioBitrate > 0 ? (float)MIN(1.0, MAX(0.12, audioBitrate / 256000.0)) : 0.18f) : 0;
+    [self.speakerMeter setProgress:outputActivity animated:YES];
+    self.speakerIcon.tintColor = audioPlaying && trackDetected ? green : UIColor.systemGrayColor;
+    self.speakerMeter.accessibilityValue = self.speakerDetailLabel.text;
+
+    NSString *inputName = snapshot[@"audioInputName"] ?: @"未检测到";
+    self.microphoneTitleLabel.text = [NSString stringWithFormat:@"麦克风输入 · %@", inputName];
+    double microphoneAge = [snapshot[@"microphoneAge"] doubleValue];
+    BOOL capturing = [snapshot[@"microphoneSamples"] unsignedIntegerValue] > 0 &&
+        microphoneAge >= 0 && microphoneAge < 0.5;
+    float level = capturing ? [snapshot[@"microphoneLevel"] floatValue] : 0;
+    float decibels = [snapshot[@"microphoneDB"] floatValue];
+    self.microphoneDetailLabel.text = capturing
+        ? [NSString stringWithFormat:@"正在采集 · %.0f dB（实时电平）", decibels]
+        : @"未捕获到 App 的麦克风采样回调";
+    [self.microphoneMeter setProgress:level animated:NO];
+    self.microphoneIcon.tintColor = capturing && level > 0.03f ? green : UIColor.systemGrayColor;
+    self.microphoneMeter.accessibilityValue = self.microphoneDetailLabel.text;
 }
 
 @end

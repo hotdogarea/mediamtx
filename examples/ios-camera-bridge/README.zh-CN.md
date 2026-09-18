@@ -94,6 +94,12 @@ bash examples/ios-camera-bridge/build-macos.sh
 
 因此，在不插任何硬件时，本版插件**不能**把 OBS 声音直接交给抖音的麦克风。若 OBS 音轨显示“有音轨”但静音模式听不到声音是正常的；可先选“本机播放”或用 Safari 播放同一 HLS 地址验证源音轨。
 
+音频页还分别显示喇叭和麦克风通道：
+
+- **喇叭 / OBS 输出**显示音轨是否正在发送、当前输出端口和音频码率。进度条表示音轨数据流量，不冒充真实响度；AVPlayer 的 HLS 音轨没有向本插件暴露可直接计量的输出 PCM。
+- **麦克风输入**显示直播 App 实际使用的输入端口，并从 `AVCaptureAudioDataOutput` 收到的 PCM 采样计算实时 dB/RMS 电平。插入回录设备后，若这里显示 `USBAudio2.0` 且绿色电平随声音跳动，才说明声音已经回到这一条麦克风采集链。
+- 若目标 App 不使用 `AVCaptureAudioDataOutput`（例如改走 AudioUnit、AVAudioEngine 或私有音频链），界面会明确显示“未捕获到 App 的麦克风采样回调”；这时不能据此判断没有声音，需要针对该 App 的采集路径另做适配。
+
 ## 5. 先验证插件注入，再考虑目标直播 App
 
 先通过 TrollStore 安装 `CameraBridgeCleanHost.ipa`，确认它**只有真实摄像头预览，没有 OBS 按钮**。把 `CameraBridge.dylib` 传到手机，在 TrollFools 中选 `CameraBridgeCleanHost` → Inject/注入 → 选 dylib；完全退出并重新打开 CleanHost，若出现 OBS 按钮且能替换画面，才证明 dylib 注入路径跑通。若注入后 App 崩溃，先在 TrollFools 中撤销该 App 的注入。
