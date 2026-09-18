@@ -16,6 +16,7 @@ static NSInteger const CBBubbleTag = 902174;
 @property (nonatomic, strong) UISegmentedControl *rotationControl;
 @property (nonatomic, strong) UILabel *stateLabel;
 @property (nonatomic, strong) UILabel *metricsLabel;
+@property (nonatomic, strong) UILabel *audioLabel;
 @property (nonatomic, strong) UILabel *hintLabel;
 + (instancetype)shared;
 - (void)installIfNeeded;
@@ -112,6 +113,18 @@ static NSInteger const CBBubbleTag = 902174;
     return label;
 }
 
+- (void)dragPanel:(UIPanGestureRecognizer *)gesture {
+    if (!self.card || !self.shade || !self.hostWindow) return;
+    CGPoint movement = [gesture translationInView:self.shade];
+    CGFloat top = self.hostWindow.safeAreaInsets.top + 8;
+    CGFloat bottom = self.shade.bounds.size.height - self.hostWindow.safeAreaInsets.bottom - 8;
+    CGFloat maximumTop = MAX(top, bottom - CGRectGetHeight(self.card.bounds));
+    CGFloat currentTop = CGRectGetMinY(self.card.frame);
+    CGFloat nextTop = MAX(top, MIN(maximumTop, currentTop + movement.y));
+    self.card.transform = CGAffineTransformTranslate(self.card.transform, 0, nextTop - currentTop);
+    [gesture setTranslation:CGPointZero inView:self.shade];
+}
+
 - (void)openPanel {
     UIWindow *window = self.hostWindow;
     if (!window || self.shade) return;
@@ -135,15 +148,22 @@ static NSInteger const CBBubbleTag = 902174;
 
     UILabel *title = [self label:@"画面输入" size:21 color:UIColor.whiteColor];
     title.font = [UIFont systemFontOfSize:21 weight:UIFontWeightSemibold];
+    UILabel *dragHint = [self label:@"按住这里上下移动" size:11
+                                  color:[UIColor colorWithWhite:1 alpha:0.55]];
+    UIStackView *heading = [[UIStackView alloc] initWithArrangedSubviews:@[title, dragHint]];
+    heading.axis = UILayoutConstraintAxisVertical;
+    heading.spacing = 0;
     UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
     [close setTitle:@"完成" forState:UIControlStateNormal];
     [close setTitleColor:[UIColor colorWithRed:0.32 green:0.85 blue:0.70 alpha:1] forState:UIControlStateNormal];
     close.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
     close.accessibilityLabel = @"保存并关闭画面输入设置";
     [close addTarget:self action:@selector(closePanel) forControlEvents:UIControlEventTouchUpInside];
-    UIStackView *header = [[UIStackView alloc] initWithArrangedSubviews:@[title, close]];
+    UIStackView *header = [[UIStackView alloc] initWithArrangedSubviews:@[heading, close]];
     header.axis = UILayoutConstraintAxisHorizontal;
     header.distribution = UIStackViewDistributionEqualSpacing;
+    header.alignment = UIStackViewAlignmentCenter;
+    [header addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragPanel:)]];
     [header.heightAnchor constraintEqualToConstant:40].active = YES;
 
     self.stateLabel = [self label:@"等待画面…" size:14 color:UIColor.systemGrayColor];
@@ -215,11 +235,16 @@ static NSInteger const CBBubbleTag = 902174;
     [rotationRow.heightAnchor constraintEqualToConstant:42].active = YES;
 
     self.metricsLabel = [self label:@"接收 --  ·  输出 --" size:12 color:[UIColor colorWithWhite:1 alpha:0.66]];
-    self.metricsLabel.numberOfLines = 4;
-    [self.metricsLabel.heightAnchor constraintEqualToConstant:68].active = YES;
+    self.metricsLabel.numberOfLines = 5;
+    [self.metricsLabel.heightAnchor constraintEqualToConstant:86].active = YES;
+    self.audioLabel = [self label:@"OBS 音轨：待检测" size:12
+                                 color:[UIColor colorWithWhite:1 alpha:0.66]];
+    self.audioLabel.numberOfLines = 2;
+    [self.audioLabel.heightAnchor constraintEqualToConstant:34].active = YES;
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        header, self.stateLabel, inputRow, self.hintLabel, switchRow, rotationRow, self.metricsLabel
+        header, self.stateLabel, inputRow, self.hintLabel, switchRow, rotationRow,
+        self.metricsLabel, self.audioLabel
     ]];
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 8;
@@ -248,6 +273,7 @@ static NSInteger const CBBubbleTag = 902174;
     self.rotationControl = nil;
     self.stateLabel = nil;
     self.metricsLabel = nil;
+    self.audioLabel = nil;
     self.hintLabel = nil;
 }
 
@@ -331,13 +357,25 @@ static NSInteger const CBBubbleTag = 902174;
     double video = [snapshot[@"videoBitrate"] doubleValue];
     NSString *networkText = network > 0 ? [NSString stringWithFormat:@"%.1f Mb/s", network / 1000000.0] : @"暂无数据";
     NSString *videoText = video > 0 ? [NSString stringWithFormat:@"%.1f Mb/s", video / 1000000.0] : @"暂无数据";
+    double lag = [snapshot[@"liveEdgeLag"] doubleValue];
+    double peakLag = [snapshot[@"peakLiveEdgeLag"] doubleValue];
+    NSString *lagText = lag >= 0 ? [NSString stringWithFormat:@"%.1f 秒", lag] : @"暂无数据";
+    NSString *peakText = peakLag >= 0 ? [NSString stringWithFormat:@"%.1f 秒", peakLag] : @"暂无数据";
     NSInteger stalls = [snapshot[@"playerStalls"] integerValue];
     NSString *stallText = stalls >= 0 ? [NSString stringWithFormat:@"%ld", (long)stalls] : @"--";
     self.metricsLabel.text = [NSString stringWithFormat:
-        @"解码 %.1f 帧/秒  ·  替换 %.1f 帧/秒\n视频码率 %@  ·  下载 %@\n重连 %@ 次  ·  播放卡顿 %@ 次\n累计接收 %@ 帧  ·  已替换 %@ 帧  ·  黑帧 %@",
+        @"解码 %.1f 帧/秒  ·  替换 %.1f 帧/秒\n视频 %@  ·  分片下载 %@\nHLS 落后 %@  ·  峰值 %@\n重连 %@ 次  ·  卡顿 %@ 次\n接收 %@ 帧  ·  替换 %@ 帧  ·  黑帧 %@",
         [snapshot[@"receivedFPS"] doubleValue], [snapshot[@"replacedFPS"] doubleValue],
-        videoText, networkText, snapshot[@"reconnects"], stallText,
+        videoText, networkText, lagText, peakText, snapshot[@"reconnects"], stallText,
         snapshot[@"receivedFrames"], snapshot[@"frames"], snapshot[@"blackFrames"]];
+    double audioBitrate = [snapshot[@"audioBitrate"] doubleValue];
+    NSString *audioState = ![snapshot[@"audioTrackChecked"] boolValue] ? @"待检测" :
+        ([snapshot[@"audioTrackDetected"] boolValue] ? @"有音轨" : @"未检测到音轨");
+    if ([snapshot[@"audioTrackDetected"] boolValue] && audioBitrate > 0) {
+        audioState = [NSString stringWithFormat:@"有音轨（%.0f kb/s）", audioBitrate / 1000.0];
+    }
+    self.audioLabel.text = [NSString stringWithFormat:
+        @"OBS 音频：%@\n音频未注入直播 App；它仍使用手机麦克风", audioState];
 }
 
 @end

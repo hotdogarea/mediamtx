@@ -113,6 +113,11 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
 @property (nonatomic, assign) double replacedFPS;
 @property (nonatomic, assign) double networkBitrate;
 @property (nonatomic, assign) double videoBitrate;
+@property (nonatomic, assign) double audioBitrate;
+@property (nonatomic, assign) BOOL audioTrackDetected;
+@property (nonatomic, assign) BOOL audioTrackChecked;
+@property (nonatomic, assign) double liveEdgeLag;
+@property (nonatomic, assign) double peakLiveEdgeLag;
 @property (nonatomic, assign) NSInteger playerStalls;
 @property (nonatomic, assign) NSInteger droppedFrames;
 @property (nonatomic, assign) CFTimeInterval lastControlCheck;
@@ -141,6 +146,9 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
         _state = @"waiting for camera";
         _networkBitrate = -1;
         _videoBitrate = -1;
+        _audioBitrate = -1;
+        _liveEdgeLag = -1;
+        _peakLiveEdgeLag = -1;
         _playerStalls = -1;
         _droppedFrames = -1;
     }
@@ -183,11 +191,34 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
             self.previousReplacedCount = self.replacedCount;
             self.lastMetricsTime = link.timestamp;
         }
-        AVPlayerItemAccessLogEvent *event = self.player.currentItem.accessLog.events.lastObject;
+        AVPlayerItem *item = self.player.currentItem;
+        AVPlayerItemAccessLogEvent *event = item.accessLog.events.lastObject;
         self.networkBitrate = event ? event.observedBitrate : -1;
         self.videoBitrate = event ? event.averageVideoBitrate : -1;
+        self.audioBitrate = event ? event.averageAudioBitrate : -1;
         self.playerStalls = event ? event.numberOfStalls : -1;
         self.droppedFrames = event ? event.numberOfDroppedVideoFrames : -1;
+        if (item.status == AVPlayerItemStatusReadyToPlay) {
+            BOOL hasAudioTrack = NO;
+            for (AVPlayerItemTrack *track in item.tracks) {
+                if ([track.assetTrack.mediaType isEqualToString:AVMediaTypeAudio]) {
+                    hasAudioTrack = YES;
+                    break;
+                }
+            }
+            self.audioTrackDetected = hasAudioTrack || self.audioBitrate > 0;
+            self.audioTrackChecked = item.tracks.count > 0 || self.audioBitrate > 0;
+        }
+        NSValue *lastRange = item.seekableTimeRanges.lastObject;
+        double liveEdge = NAN;
+        if (lastRange) liveEdge = CMTimeGetSeconds(CMTimeRangeGetEnd(lastRange.CMTimeRangeValue));
+        double playhead = item ? CMTimeGetSeconds(item.currentTime) : NAN;
+        if (isfinite(liveEdge) && isfinite(playhead) && liveEdge >= playhead && liveEdge - playhead < 3600) {
+            self.liveEdgeLag = liveEdge - playhead;
+            self.peakLiveEdgeLag = MAX(self.peakLiveEdgeLag, self.liveEdgeLag);
+        } else {
+            self.liveEdgeLag = -1;
+        }
     }
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     NSString *urlString = CBNormalizedStreamURL([defaults stringForKey:CBStreamURLKey]);
@@ -208,6 +239,11 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
         [self clearFrame];
         self.currentURL = urlString;
         self.lastConnectTime = CFAbsoluteTimeGetCurrent();
+        self.audioTrackChecked = NO;
+        self.audioTrackDetected = NO;
+        self.audioBitrate = -1;
+        self.liveEdgeLag = -1;
+        self.peakLiveEdgeLag = -1;
         NSURL *url = [NSURL URLWithString:urlString];
         NSDictionary *attributes = @{(id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA)};
         self.videoOutput = [[AVPlayerItemVideoOutput alloc] initWithPixelBufferAttributes:attributes];
@@ -433,6 +469,11 @@ NSDictionary<NSString *, id> *CBStatusSnapshot(void) {
                   @"reconnects": @(receiver.reconnectCount),
                   @"networkBitrate": @(receiver.networkBitrate),
                   @"videoBitrate": @(receiver.videoBitrate),
+                  @"audioBitrate": @(receiver.audioBitrate),
+                  @"audioTrackDetected": @(receiver.audioTrackDetected),
+                  @"audioTrackChecked": @(receiver.audioTrackChecked),
+                  @"liveEdgeLag": @(receiver.liveEdgeLag),
+                  @"peakLiveEdgeLag": @(receiver.peakLiveEdgeLag),
                   @"playerStalls": @(receiver.playerStalls),
                   @"droppedFrames": @(receiver.droppedFrames),
                   @"cameraFrames": @(receiver.cameraCallbackCount),
