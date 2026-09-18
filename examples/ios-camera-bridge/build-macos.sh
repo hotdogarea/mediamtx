@@ -9,6 +9,10 @@ command -v xcodebuild >/dev/null || { echo "Xcode is required" >&2; exit 1; }
 
 xcodegen generate
 for app in CameraBridgeDemo CameraBridgeCleanHost; do
+  case "$app" in
+    CameraBridgeDemo) output_name="boleme-demo" ;;
+    CameraBridgeCleanHost) output_name="boleme-clean-host" ;;
+  esac
   xcodebuild -project CameraBridgeDemo.xcodeproj -scheme "$app" \
     -configuration Release -sdk iphoneos -arch arm64 \
     -derivedDataPath "$project_dir/build" CODE_SIGNING_ALLOWED=NO build
@@ -16,7 +20,7 @@ for app in CameraBridgeDemo CameraBridgeCleanHost; do
   ditto "$project_dir/build/Build/Products/Release-iphoneos/$app.app" \
     "$project_dir/out/$app/Payload/$app.app"
   cd "$project_dir/out/$app"
-  ditto -c -k --sequesterRsrc --keepParent Payload "../$app.ipa"
+  ditto -c -k --sequesterRsrc --keepParent Payload "../$output_name.ipa"
   cd "$project_dir"
 done
 
@@ -26,11 +30,11 @@ xcrun --sdk iphoneos clang -arch arm64 -dynamiclib -fobjc-arc \
   -I "$project_dir/CameraBridge" \
   -framework Foundation -framework UIKit -framework AVFoundation \
   -framework CoreMedia -framework CoreVideo -framework CoreImage -framework CoreGraphics -framework QuartzCore \
-  -Wl,-install_name,@rpath/CameraBridge.dylib \
+  -Wl,-install_name,@rpath/boleme.dylib \
   "$project_dir/CameraBridge/CameraBridge.m" \
-  "$project_dir/CameraBridge/BridgeControls.m" -o "$project_dir/out/CameraBridge.dylib"
-codesign --force --sign - "$project_dir/out/CameraBridge.dylib"
+  "$project_dir/CameraBridge/BridgeControls.m" -o "$project_dir/out/boleme.dylib"
+codesign --force --sign - "$project_dir/out/boleme.dylib"
 
-echo "Built: $project_dir/out/CameraBridgeDemo.ipa"
-echo "Built: $project_dir/out/CameraBridgeCleanHost.ipa"
-echo "Built: $project_dir/out/CameraBridge.dylib"
+echo "Built: $project_dir/out/boleme-demo.ipa"
+echo "Built: $project_dir/out/boleme-clean-host.ipa"
+echo "Built: $project_dir/out/boleme.dylib"

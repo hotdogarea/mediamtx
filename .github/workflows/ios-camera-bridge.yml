@@ -1,4 +1,4 @@
-name: iOS Camera Bridge demo
+name: boleme iOS build
 on:
   workflow_dispatch:
 
@@ -13,8 +13,8 @@ jobs:
         run: bash examples/ios-camera-bridge/build-macos.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: ios-camera-bridge-demo
+          name: boleme-build
           path: |
-            examples/ios-camera-bridge/out/CameraBridgeDemo.ipa
-            examples/ios-camera-bridge/out/CameraBridgeCleanHost.ipa
-            examples/ios-camera-bridge/out/CameraBridge.dylib
+            examples/ios-camera-bridge/out/boleme-demo.ipa
+            examples/ios-camera-bridge/out/boleme-clean-host.ipa
+            examples/ios-camera-bridge/out/boleme.dylib

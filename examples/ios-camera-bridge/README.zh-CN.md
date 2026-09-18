@@ -62,23 +62,23 @@ OBS → 设置 → 输出：视频编码选 H.264，**关键帧间隔明确设�
 bash examples/ios-camera-bridge/build-macos.sh
 ```
 
-产物为 `CameraBridgeDemo.ipa`、`CameraBridgeCleanHost.ipa` 和 `CameraBridge.dylib`。Demo 是**已内置相同替换代码**的测试 App；CleanHost 是**没有内置插件**的普通摄像头 App，用于先验证 TrollFools 注入；dylib 才是真正注入的插件。脚本生成的是未使用个人证书签名的测试 IPA，按下文通过 TrollStore 安装。
+产物为 `boleme-demo.ipa`、`boleme-clean-host.ipa` 和 `boleme.dylib`。Demo 是**已内置相同替换代码**的测试 App；CleanHost 是**没有内置插件**的普通摄像头 App，用于先验证 TrollFools 注入；dylib 才是真正注入的插件。脚本生成的是未使用个人证书签名的测试 IPA，按下文通过 TrollStore 安装。
 
 如果手机没有 TrollStore，但有 Mac，可以先 `cd examples/ios-camera-bridge && xcodegen generate`，用 Xcode 打开 `CameraBridgeDemo.xcodeproj`，在 Signing & Capabilities 选自己的 Team 和唯一 Bundle Identifier，连接 iPhone 后 Run。这样**只能测试我们自己的 App**，不意味着能注入抖音/淘宝。
 
 ### 只有 Windows、没有 Mac
 
-本 Demo 已推送到 [hotdogarea/mediamtx](https://github.com/hotdogarea/mediamtx)。其他使用者可 Fork 后，在自己仓库的 Actions 中运行 `iOS Camera Bridge demo`；如果在本地修改了源码，再把改动推送到自己的 fork。不要把实验代码误推到原作者仓库。
+本 Demo 已推送到 [hotdogarea/mediamtx](https://github.com/hotdogarea/mediamtx)。其他使用者可 Fork 后，在自己仓库的 Actions 中运行 `boleme iOS build`；如果在本地修改了源码，再把改动推送到自己的 fork。不要把实验代码误推到原作者仓库。
 
-打开 fork 的 Actions → `iOS Camera Bridge demo` → Run workflow，成功后下载 `ios-camera-bridge-demo` 工件并解压，得到两个 IPA 和一个 dylib。工作流使用 GitHub 的 macOS runner/Xcode，不需要在 Windows 本机安装 Xcode。若手机兼容 TrollStore，可以直接用它安装测试 IPA；否则可使用 Windows 上的 Sideloadly 和自己的 Apple ID 签名测试 App。
+打开 fork 的 Actions → `boleme iOS build` → Run workflow，成功后下载 `boleme-build` 工件并解压，得到两个 IPA 和一个 dylib。工作流使用 GitHub 的 macOS runner/Xcode，不需要在 Windows 本机安装 Xcode。若手机兼容 TrollStore，可以直接用它安装测试 IPA；否则可使用 Windows 上的 Sideloadly 和自己的 Apple ID 签名测试 App。
 
 ## 4. 安装到 iPhone、验证
 
-先在 iPhone“设置 → 通用 → 关于本机”记下 iOS 版本和机型。对已安装 TrollStore 的 iPhone 7/iOS 14.3，直接使用下述 TrollStore 路径。没有 TrollStore、只测试自己的 Demo 时，可在 Windows 安装 [Sideloadly 官方版本](https://sideloadly.io/)及其要求的 Apple 官网版 iTunes/iCloud → USB 连接 iPhone 并信任电脑 → 将 `CameraBridgeDemo.ipa` 拖入 Sideloadly → 输入自己的 Apple ID 签名并安装。免费 Apple ID 安装的测试 App 通常 7 天后需要重新签名，见 [Sideloadly FAQ](https://sideloadly.io/faq)。
+先在 iPhone“设置 → 通用 → 关于本机”记下 iOS 版本和机型。对已安装 TrollStore 的 iPhone 7/iOS 14.3，直接使用下述 TrollStore 路径。没有 TrollStore、只测试自己的 Demo 时，可在 Windows 安装 [Sideloadly 官方版本](https://sideloadly.io/)及其要求的 Apple 官网版 iTunes/iCloud → USB 连接 iPhone 并信任电脑 → 将 `boleme-demo.ipa` 拖入 Sideloadly → 输入自己的 Apple ID 签名并安装。免费 Apple ID 安装的测试 App 通常 7 天后需要重新签名，见 [Sideloadly FAQ](https://sideloadly.io/faq)。
 
 若系统处于 TrollStore 支持范围，也可以按 [iOS Guide 的机型/版本对照教程](https://ios.cfw.guide/installing-trollstore/)安装 TrollStore（各版本入口不同，不要随意用第三方安装包）。TrollStore **不是越狱**。
 
-1. **已安装 TrollStore**：把 `CameraBridgeDemo.ipa` 传到手机“文件”App，在 TrollStore 里导入/安装。第一次打开允许摄像头、麦克风和局域网访问。麦克风仅用于模拟直播 App 的采集状态、识别外接输入路线；Demo 不保存或上传录音。Demo 已内置替换代码，**不用再注入它**。
+1. **已安装 TrollStore**：把 `boleme-demo.ipa` 传到手机“文件”App，在 TrollStore 里导入/安装。第一次打开允许摄像头、麦克风和局域网访问。麦克风仅用于模拟直播 App 的采集状态、识别外接输入路线；Demo 不保存或上传录音。Demo 已内置替换代码，**不用再注入它**。
 2. 点可拖动的“播了么”按钮，地址栏可以**只填电脑 IP**，例如 `192.168.1.20`；插件自动补齐 `http://…:8888/obs/index.m3u8`。也可以先在 Safari 打开播放地址，复制后点面板的“粘贴”。地址会保存，下次只需打开开关。
 3. “播了么推流助手”分为“画面 / 声音”两个 Tab。画面页向普通用户只显示分辨率、码率、接收/送出帧率、当前/最高延迟，以及重试、卡顿、丢帧、保护黑帧等精简诊断数据。用户遇到问题时把这一页截图发给维护者即可。按住弹窗顶部标题可上下移动它。接收帧率是播放器实际拿到的画面速度，送出帧率是直播 App 实际收到的替换画面速度；它们不必严格相等。延迟仍是播放位置相对直播边缘的估算值，不是从 OBS 采集到观众看到画面的完整端到端延迟。
 4. 预览应变成 OBS 的时钟/动作；关闭开关后应恢复真摄像头。停 OBS 后，**开关仍开着时**应先保留最后画面再变黑，不能露出真摄像头。若方向不对，可在面板试 90°/180°/270°；Demo 自身的真实相机预览已设置竖屏方向。
@@ -102,7 +102,7 @@ bash examples/ios-camera-bridge/build-macos.sh
 
 ## 5. 先验证插件注入，再考虑目标直播 App
 
-先通过 TrollStore 安装 `CameraBridgeCleanHost.ipa`，确认它**只有真实摄像头预览，没有“播了么”按钮**。把 `CameraBridge.dylib` 传到手机，在 TrollFools 中选 `CameraBridgeCleanHost` → Inject/注入 → 选 dylib；完全退出并重新打开 CleanHost，若出现“播了么”按钮且能替换画面，才证明 dylib 注入路径跑通。若注入后 App 崩溃，先在 TrollFools 中撤销该 App 的注入。
+先通过 TrollStore 安装 `boleme-clean-host.ipa`，确认它**只有真实摄像头预览，没有“播了么”按钮**。把 `boleme.dylib` 传到手机，在 TrollFools 中选 CleanHost → Inject/注入 → 选 dylib；完全退出并重新打开 CleanHost，若出现“播了么”按钮且能替换画面，才证明 dylib 注入路径跑通。若注入后 App 崩溃，先在 TrollFools 中撤销该 App 的注入。
 
 之后再考虑官方直播 App。[TrollFools 官方 README](https://github.com/Lessica/TrollFools/blob/main/README.md) 对加密 App Store App 的条件是“带裸动态库”，所以**不保证**抖音/淘宝可注入或能捕获相机回调。即使插件在目标 App 内运行，也只先检查开播前预览，不要直接对真实观众开播；还需确认符合平台规则。
 
