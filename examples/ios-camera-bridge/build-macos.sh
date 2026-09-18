@@ -23,7 +23,7 @@ xcrun --sdk iphoneos clang -arch arm64 -dynamiclib -fobjc-arc \
   -miphoneos-version-min=14.0 -isysroot "$sdk_path" \
   -I "$project_dir/CameraBridge" \
   -framework Foundation -framework UIKit -framework AVFoundation \
-  -framework CoreMedia -framework CoreVideo -framework CoreImage -framework QuartzCore \
+  -framework CoreMedia -framework CoreVideo -framework CoreImage -framework CoreGraphics -framework QuartzCore \
   -Wl,-install_name,@rpath/CameraBridge.dylib \
   "$project_dir/CameraBridge/CameraBridge.m" -o "$project_dir/out/CameraBridge.dylib"
 codesign --force --sign - "$project_dir/out/CameraBridge.dylib"
