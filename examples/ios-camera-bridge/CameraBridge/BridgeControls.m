@@ -334,10 +334,10 @@ static NSInteger const CBBubbleTag = 902174;
     NSInteger stalls = [snapshot[@"playerStalls"] integerValue];
     NSString *stallText = stalls >= 0 ? [NSString stringWithFormat:@"%ld", (long)stalls] : @"--";
     self.metricsLabel.text = [NSString stringWithFormat:
-        @"解码 %.1f 帧/秒  ·  替换 %.1f 帧/秒\n视频码率 %@  ·  下载 %@\n重连 %@ 次  ·  播放卡顿 %@ 次\n累计解码 %@ 帧  ·  黑帧 %@",
+        @"解码 %.1f 帧/秒  ·  替换 %.1f 帧/秒\n视频码率 %@  ·  下载 %@\n重连 %@ 次  ·  播放卡顿 %@ 次\n累计接收 %@ 帧  ·  已替换 %@ 帧  ·  黑帧 %@",
         [snapshot[@"receivedFPS"] doubleValue], [snapshot[@"replacedFPS"] doubleValue],
         videoText, networkText, snapshot[@"reconnects"], stallText,
-        snapshot[@"receivedFrames"], snapshot[@"blackFrames"]];
+        snapshot[@"receivedFrames"], snapshot[@"frames"], snapshot[@"blackFrames"]];
 }
 
 @end
