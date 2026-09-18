@@ -123,6 +123,8 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
 @property (nonatomic, assign) CFAbsoluteTime latestFrameTime;
 @property (nonatomic, assign) NSUInteger replacedCount;
 @property (nonatomic, assign) NSUInteger receivedCount;
+@property (nonatomic, assign) NSUInteger sourceWidth;
+@property (nonatomic, assign) NSUInteger sourceHeight;
 @property (nonatomic, assign) NSUInteger cameraCallbackCount;
 @property (nonatomic, assign) OSType cameraPixelFormat;
 @property (nonatomic, assign) NSUInteger reconnectCount;
@@ -343,6 +345,8 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
         _latestPixelBuffer = pixelBuffer; // copyPixelBuffer already returned +1.
         _latestFrameTime = CFAbsoluteTimeGetCurrent();
         _receivedCount++;
+        _sourceWidth = CVPixelBufferGetWidth(pixelBuffer);
+        _sourceHeight = CVPixelBufferGetHeight(pixelBuffer);
         _state = @"receiving video frames";
     }
 }
@@ -638,6 +642,8 @@ NSDictionary<NSString *, id> *CBStatusSnapshot(void) {
         return @{ @"state": receiver.state ?: @"unknown",
                   @"frames": @(receiver.replacedCount),
                   @"receivedFrames": @(receiver.receivedCount),
+                  @"sourceWidth": @(receiver.sourceWidth),
+                  @"sourceHeight": @(receiver.sourceHeight),
                   @"receivedFPS": @(receiver.receivedFPS),
                   @"replacedFPS": @(receiver.replacedFPS),
                   @"frameAge": @(age),

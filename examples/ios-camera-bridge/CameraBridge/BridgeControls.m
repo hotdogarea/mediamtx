@@ -9,6 +9,10 @@ static NSInteger const CBBubbleTag = 902174;
 @property (nonatomic, weak) UIWindow *hostWindow;
 @property (nonatomic, weak) UIButton *bubble;
 @property (nonatomic, weak) UIView *statusDot;
+@property (nonatomic, strong) UIImageView *bubbleSpeakerIcon;
+@property (nonatomic, strong) UIImageView *bubbleMicrophoneIcon;
+@property (nonatomic, strong) UIImageView *headerSpeakerIcon;
+@property (nonatomic, strong) UIImageView *headerMicrophoneIcon;
 @property (nonatomic, strong) UIView *shade;
 @property (nonatomic, weak) UIView *card;
 @property (nonatomic, strong) UITextField *addressField;
@@ -16,6 +20,7 @@ static NSInteger const CBBubbleTag = 902174;
 @property (nonatomic, strong) UISegmentedControl *rotationControl;
 @property (nonatomic, strong) UILabel *stateLabel;
 @property (nonatomic, strong) UILabel *metricsLabel;
+@property (nonatomic, strong) UILabel *videoSummaryLabel;
 @property (nonatomic, strong) UILabel *audioLabel;
 @property (nonatomic, strong) UILabel *hintLabel;
 @property (nonatomic, strong) UISegmentedControl *tabControl;
@@ -73,32 +78,57 @@ static NSInteger const CBBubbleTag = 902174;
 
         UIButton *bubble = [UIButton buttonWithType:UIButtonTypeCustom];
         bubble.tag = CBBubbleTag;
-        bubble.frame = CGRectMake(0, 0, 72, 48);
-        bubble.backgroundColor = [UIColor colorWithRed:0.09 green:0.11 blue:0.14 alpha:0.95];
+        bubble.frame = CGRectMake(0, 0, 116, 48);
+        bubble.backgroundColor = [UIColor colorWithRed:0.09 green:0.11 blue:0.14 alpha:0.82];
         bubble.layer.cornerRadius = 24;
         bubble.layer.borderWidth = 1;
         bubble.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.20].CGColor;
-        [bubble setTitle:@"OBS" forState:UIControlStateNormal];
+        [bubble setTitle:@"播了么" forState:UIControlStateNormal];
         [bubble setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-        bubble.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
-        bubble.accessibilityLabel = @"OBS 画面输入设置，可拖动位置";
+        bubble.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+        bubble.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        bubble.contentEdgeInsets = UIEdgeInsetsMake(0, 13, 0, 48);
+        bubble.accessibilityLabel = @"播了么推流助手，可拖动位置";
         [bubble addTarget:self action:@selector(openPanel) forControlEvents:UIControlEventTouchUpInside];
         [bubble addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragBubble:)]];
-        UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(56, 10, 7, 7)];
+        UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(67, 9, 6, 6)];
         dot.layer.cornerRadius = 3.5;
         dot.backgroundColor = UIColor.systemGrayColor;
         dot.userInteractionEnabled = NO;
         [bubble addSubview:dot];
         self.statusDot = dot;
+        UIImageSymbolConfiguration *bubbleSymbols = [UIImageSymbolConfiguration configurationWithPointSize:13
+                                                                                                     weight:UIImageSymbolWeightSemibold];
+        UIImageView *speaker = [[UIImageView alloc] initWithImage:[[UIImage systemImageNamed:@"speaker.wave.2.fill"]
+                                                                  imageWithConfiguration:bubbleSymbols]];
+        speaker.frame = CGRectMake(76, 16, 16, 16);
+        speaker.tintColor = UIColor.systemGrayColor;
+        speaker.contentMode = UIViewContentModeScaleAspectFit;
+        speaker.userInteractionEnabled = NO;
+        [bubble addSubview:speaker];
+        self.bubbleSpeakerIcon = speaker;
+        UIImageView *microphone = [[UIImageView alloc] initWithImage:[[UIImage systemImageNamed:@"mic.fill"]
+                                                                     imageWithConfiguration:bubbleSymbols]];
+        microphone.frame = CGRectMake(96, 16, 14, 16);
+        microphone.tintColor = UIColor.systemGrayColor;
+        microphone.contentMode = UIViewContentModeScaleAspectFit;
+        microphone.userInteractionEnabled = NO;
+        [bubble addSubview:microphone];
+        self.bubbleMicrophoneIcon = microphone;
         BOOL left = [NSUserDefaults.standardUserDefaults boolForKey:@"CameraBridge.BubbleLeft"];
         CGFloat fraction = [NSUserDefaults.standardUserDefaults objectForKey:@"CameraBridge.BubbleY"]
             ? [NSUserDefaults.standardUserDefaults doubleForKey:@"CameraBridge.BubbleY"] : 0.72;
         CGFloat centerY = MAX(window.safeAreaInsets.top + 36,
                               MIN(window.bounds.size.height - window.safeAreaInsets.bottom - 36,
                                   window.bounds.size.height * fraction));
-        bubble.center = CGPointMake(left ? 52 : window.bounds.size.width - 52, centerY);
+        bubble.center = CGPointMake(left ? 68 : window.bounds.size.width - 68, centerY);
         [window addSubview:bubble];
         self.bubble = bubble;
+    }
+    if (!self.meterTimer) {
+        self.meterTimer = [NSTimer timerWithTimeInterval:0.08 target:self selector:@selector(refreshMeters)
+                                                userInfo:nil repeats:YES];
+        [NSRunLoop.mainRunLoop addTimer:self.meterTimer forMode:NSRunLoopCommonModes];
     }
     [self refreshStatus];
 }
@@ -108,7 +138,7 @@ static NSInteger const CBBubbleTag = 902174;
     UIWindow *window = self.hostWindow;
     if (!bubble || !window) return;
     CGPoint movement = [gesture translationInView:window];
-    bubble.center = CGPointMake(MAX(52, MIN(window.bounds.size.width - 52, bubble.center.x + movement.x)),
+    bubble.center = CGPointMake(MAX(68, MIN(window.bounds.size.width - 68, bubble.center.x + movement.x)),
                                 MAX(window.safeAreaInsets.top + 36,
                                     MIN(window.bounds.size.height - window.safeAreaInsets.bottom - 36,
                                         bubble.center.y + movement.y)));
@@ -116,7 +146,7 @@ static NSInteger const CBBubbleTag = 902174;
     if (gesture.state == UIGestureRecognizerStateEnded) {
         BOOL left = bubble.center.x < window.bounds.size.width / 2;
         [UIView animateWithDuration:0.18 animations:^{
-            bubble.center = CGPointMake(left ? 52 : window.bounds.size.width - 52, bubble.center.y);
+            bubble.center = CGPointMake(left ? 68 : window.bounds.size.width - 68, bubble.center.y);
         }];
         [NSUserDefaults.standardUserDefaults setBool:left forKey:@"CameraBridge.BubbleLeft"];
         [NSUserDefaults.standardUserDefaults setDouble:bubble.center.y / window.bounds.size.height forKey:@"CameraBridge.BubbleY"];
@@ -148,7 +178,7 @@ static NSInteger const CBBubbleTag = 902174;
     if (!window || self.shade) return;
     UIView *shade = [[UIView alloc] initWithFrame:window.bounds];
     shade.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    shade.backgroundColor = [UIColor colorWithWhite:0 alpha:0.48];
+    shade.backgroundColor = [UIColor colorWithWhite:0 alpha:0.18];
     UITapGestureRecognizer *outsideTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(closePanel)];
     outsideTap.delegate = self;
     [shade addGestureRecognizer:outsideTap];
@@ -156,7 +186,7 @@ static NSInteger const CBBubbleTag = 902174;
     self.shade = shade;
 
     UIView *card = [UIView new];
-    card.backgroundColor = [UIColor colorWithRed:0.09 green:0.11 blue:0.14 alpha:1];
+    card.backgroundColor = [UIColor colorWithRed:0.07 green:0.09 blue:0.12 alpha:0.84];
     card.layer.cornerRadius = 18;
     card.layer.borderWidth = 1;
     card.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.13].CGColor;
@@ -164,8 +194,8 @@ static NSInteger const CBBubbleTag = 902174;
     [shade addSubview:card];
     self.card = card;
 
-    UILabel *title = [self label:@"OBS 输入" size:21 color:UIColor.whiteColor];
-    title.font = [UIFont systemFontOfSize:21 weight:UIFontWeightSemibold];
+    UILabel *title = [self label:@"播了么推流助手" size:19 color:UIColor.whiteColor];
+    title.font = [UIFont systemFontOfSize:19 weight:UIFontWeightSemibold];
     UILabel *dragHint = [self label:@"按住这里上下移动" size:11
                                   color:[UIColor colorWithWhite:1 alpha:0.55]];
     UIStackView *heading = [[UIStackView alloc] initWithArrangedSubviews:@[title, dragHint]];
@@ -177,14 +207,36 @@ static NSInteger const CBBubbleTag = 902174;
     close.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
     close.accessibilityLabel = @"保存并关闭画面输入设置";
     [close addTarget:self action:@selector(closePanel) forControlEvents:UIControlEventTouchUpInside];
-    UIStackView *header = [[UIStackView alloc] initWithArrangedSubviews:@[heading, close]];
+    UIImageSymbolConfiguration *headerSymbols = [UIImageSymbolConfiguration configurationWithPointSize:17
+                                                                                                  weight:UIImageSymbolWeightSemibold];
+    self.headerSpeakerIcon = [[UIImageView alloc] initWithImage:[[UIImage systemImageNamed:@"speaker.wave.2.fill"]
+                                                                 imageWithConfiguration:headerSymbols]];
+    self.headerSpeakerIcon.tintColor = UIColor.systemGrayColor;
+    self.headerSpeakerIcon.contentMode = UIViewContentModeScaleAspectFit;
+    self.headerSpeakerIcon.accessibilityLabel = @"当前声音输出通道";
+    [self.headerSpeakerIcon.widthAnchor constraintEqualToConstant:24].active = YES;
+    [self.headerSpeakerIcon.heightAnchor constraintEqualToConstant:24].active = YES;
+    self.headerMicrophoneIcon = [[UIImageView alloc] initWithImage:[[UIImage systemImageNamed:@"mic.fill"]
+                                                                    imageWithConfiguration:headerSymbols]];
+    self.headerMicrophoneIcon.tintColor = UIColor.systemGrayColor;
+    self.headerMicrophoneIcon.contentMode = UIViewContentModeScaleAspectFit;
+    self.headerMicrophoneIcon.accessibilityLabel = @"当前麦克风输入通道";
+    [self.headerMicrophoneIcon.widthAnchor constraintEqualToConstant:22].active = YES;
+    [self.headerMicrophoneIcon.heightAnchor constraintEqualToConstant:24].active = YES;
+    UIStackView *headerActions = [[UIStackView alloc] initWithArrangedSubviews:@[
+        self.headerSpeakerIcon, self.headerMicrophoneIcon, close
+    ]];
+    headerActions.axis = UILayoutConstraintAxisHorizontal;
+    headerActions.alignment = UIStackViewAlignmentCenter;
+    headerActions.spacing = 8;
+    UIStackView *header = [[UIStackView alloc] initWithArrangedSubviews:@[heading, headerActions]];
     header.axis = UILayoutConstraintAxisHorizontal;
     header.distribution = UIStackViewDistributionEqualSpacing;
     header.alignment = UIStackViewAlignmentCenter;
     [header addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragPanel:)]];
     [header.heightAnchor constraintEqualToConstant:40].active = YES;
 
-    self.tabControl = [[UISegmentedControl alloc] initWithItems:@[@"画面", @"音频"]];
+    self.tabControl = [[UISegmentedControl alloc] initWithItems:@[@"画面", @"声音"]];
     self.tabControl.selectedSegmentIndex = 0;
     self.tabControl.accessibilityLabel = @"切换画面或音频设置";
     [self.tabControl addTarget:self action:@selector(changeTab) forControlEvents:UIControlEventValueChanged];
@@ -193,6 +245,10 @@ static NSInteger const CBBubbleTag = 902174;
     self.stateLabel = [self label:@"等待画面…" size:14 color:UIColor.systemGrayColor];
     self.stateLabel.numberOfLines = 2;
     [self.stateLabel.heightAnchor constraintEqualToConstant:38].active = YES;
+    self.videoSummaryLabel = [self label:@"分辨率：等待连接" size:13
+                                        color:[UIColor colorWithWhite:1 alpha:0.82]];
+    self.videoSummaryLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+    [self.videoSummaryLabel.heightAnchor constraintEqualToConstant:22].active = YES;
 
     self.addressField = [UITextField new];
     self.addressField.backgroundColor = [UIColor colorWithWhite:1 alpha:0.09];
@@ -259,15 +315,15 @@ static NSInteger const CBBubbleTag = 902174;
     [rotationRow.heightAnchor constraintEqualToConstant:42].active = YES;
 
     self.metricsLabel = [self label:@"接收 --  ·  输出 --" size:12 color:[UIColor colorWithWhite:1 alpha:0.66]];
-    self.metricsLabel.numberOfLines = 5;
-    [self.metricsLabel.heightAnchor constraintEqualToConstant:86].active = YES;
+    self.metricsLabel.numberOfLines = 4;
+    [self.metricsLabel.heightAnchor constraintEqualToConstant:70].active = YES;
     self.videoPanel = [[UIStackView alloc] initWithArrangedSubviews:@[
-        self.stateLabel, inputRow, self.hintLabel, switchRow, rotationRow, self.metricsLabel
+        self.stateLabel, self.videoSummaryLabel, inputRow, self.hintLabel, switchRow, rotationRow, self.metricsLabel
     ]];
     self.videoPanel.axis = UILayoutConstraintAxisVertical;
     self.videoPanel.spacing = 8;
 
-    self.audioLabel = [self label:@"OBS 音轨：待检测" size:14 color:UIColor.whiteColor];
+    self.audioLabel = [self label:@"电脑声音：等待连接" size:14 color:UIColor.whiteColor];
     self.audioLabel.numberOfLines = 2;
     [self.audioLabel.heightAnchor constraintEqualToConstant:42].active = YES;
 
@@ -288,7 +344,7 @@ static NSInteger const CBBubbleTag = 902174;
     self.speakerMeter.trackTintColor = [UIColor colorWithWhite:1 alpha:0.10];
     self.speakerMeter.progressTintColor = accent;
     self.speakerMeter.transform = CGAffineTransformMakeScale(1, 1.8);
-    self.speakerMeter.accessibilityLabel = @"OBS 音轨数据状态";
+    self.speakerMeter.accessibilityLabel = @"电脑声音传输状态";
     UIStackView *speakerInfo = [[UIStackView alloc] initWithArrangedSubviews:@[
         self.speakerTitleLabel, self.speakerDetailLabel, self.speakerMeter
     ]];
@@ -326,10 +382,10 @@ static NSInteger const CBBubbleTag = 902174;
     microphoneRow.spacing = 10;
     [microphoneRow.heightAnchor constraintEqualToConstant:56].active = YES;
 
-    UILabel *audioModeTitle = [self label:@"声音输出方式" size:13
+    UILabel *audioModeTitle = [self label:@"选择声音怎么走" size:13
                                       color:[UIColor colorWithWhite:1 alpha:0.62]];
     [audioModeTitle.heightAnchor constraintEqualToConstant:20].active = YES;
-    self.audioModeControl = [[UISegmentedControl alloc] initWithItems:@[@"静音", @"本机播放", @"外接回录"]];
+    self.audioModeControl = [[UISegmentedControl alloc] initWithItems:@[@"静音", @"本机播放", @"外接内录"]];
     NSInteger audioMode = [NSUserDefaults.standardUserDefaults integerForKey:CBAudioModeKey];
     self.audioModeControl.selectedSegmentIndex = MAX(0, MIN(2, audioMode));
     self.audioModeControl.accessibilityLabel = @"OBS 音频输出方式";
@@ -369,17 +425,12 @@ static NSInteger const CBBubbleTag = 902174;
         [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-16],
         [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-14]
     ]];
-    self.meterTimer = [NSTimer timerWithTimeInterval:0.08 target:self selector:@selector(refreshMeters)
-                                            userInfo:nil repeats:YES];
-    [NSRunLoop.mainRunLoop addTimer:self.meterTimer forMode:NSRunLoopCommonModes];
     [self refreshStatus];
 }
 
 - (void)closePanel {
     [self saveAddress];
     [self.addressField resignFirstResponder];
-    [self.meterTimer invalidate];
-    self.meterTimer = nil;
     [self.shade removeFromSuperview];
     self.shade = nil;
     self.card = nil;
@@ -388,6 +439,7 @@ static NSInteger const CBBubbleTag = 902174;
     self.rotationControl = nil;
     self.stateLabel = nil;
     self.metricsLabel = nil;
+    self.videoSummaryLabel = nil;
     self.audioLabel = nil;
     self.hintLabel = nil;
     self.tabControl = nil;
@@ -405,6 +457,8 @@ static NSInteger const CBBubbleTag = 902174;
     self.microphoneDetailLabel = nil;
     self.speakerMeter = nil;
     self.microphoneMeter = nil;
+    self.headerSpeakerIcon = nil;
+    self.headerMicrophoneIcon = nil;
 }
 
 - (BOOL)saveAddress {
@@ -488,9 +542,9 @@ static NSInteger const CBBubbleTag = 902174;
         headline = @"等待 App 打开摄像头";
         detail = age >= 0 ? @"OBS 画面已收到" : @"先打开摄像头预览";
     } else if ([state isEqualToString:@"connecting to HLS"]) {
-        detail = @"正在连接服务器";
+        detail = @"正在连接电脑画面";
     } else if ([state isEqualToString:@"HLS stalled; reconnecting"]) {
-        detail = @"视频暂停，正在重连";
+        detail = @"画面中断，正在自动重试";
     } else if ([state isEqualToString:@"invalid URL"]) {
         detail = @"请检查电脑 IP 或播放地址";
     } else if (age >= 0) {
@@ -498,90 +552,122 @@ static NSInteger const CBBubbleTag = 902174;
     }
     self.stateLabel.text = [NSString stringWithFormat:@"%@  ·  %@", headline, detail];
     self.stateLabel.textColor = fresh ? green : (enabled ? amber : [UIColor colorWithWhite:1 alpha:0.60]);
-    double network = [snapshot[@"networkBitrate"] doubleValue];
     double video = [snapshot[@"videoBitrate"] doubleValue];
-    NSString *networkText = network > 0 ? [NSString stringWithFormat:@"%.1f Mb/s", network / 1000000.0] : @"暂无数据";
-    NSString *videoText = video > 0 ? [NSString stringWithFormat:@"%.1f Mb/s", video / 1000000.0] : @"暂无数据";
+    NSString *videoText = video > 0 ? [NSString stringWithFormat:@"%.1f Mb/s", video / 1000000.0] : @"读取中";
+    NSUInteger sourceWidth = [snapshot[@"sourceWidth"] unsignedIntegerValue];
+    NSUInteger sourceHeight = [snapshot[@"sourceHeight"] unsignedIntegerValue];
+    NSString *resolutionText = sourceWidth && sourceHeight
+        ? [NSString stringWithFormat:@"%lu × %lu", (unsigned long)sourceWidth, (unsigned long)sourceHeight]
+        : @"等待画面";
+    self.videoSummaryLabel.text = [NSString stringWithFormat:@"分辨率 %@  ·  码率 %@", resolutionText, videoText];
     double lag = [snapshot[@"liveEdgeLag"] doubleValue];
     double peakLag = [snapshot[@"peakLiveEdgeLag"] doubleValue];
     NSString *lagText = lag >= 0 ? [NSString stringWithFormat:@"%.1f 秒", lag] : @"暂无数据";
     NSString *peakText = peakLag >= 0 ? [NSString stringWithFormat:@"%.1f 秒", peakLag] : @"暂无数据";
     NSInteger stalls = [snapshot[@"playerStalls"] integerValue];
     NSString *stallText = stalls >= 0 ? [NSString stringWithFormat:@"%ld", (long)stalls] : @"--";
+    NSInteger dropped = [snapshot[@"droppedFrames"] integerValue];
+    NSString *droppedText = dropped >= 0 ? [NSString stringWithFormat:@"%ld", (long)dropped] : @"--";
     self.metricsLabel.text = [NSString stringWithFormat:
-        @"解码 %.1f 帧/秒  ·  替换 %.1f 帧/秒\n视频 %@  ·  分片下载 %@\nHLS 落后 %@  ·  峰值 %@\n重连 %@ 次  ·  卡顿 %@ 次\n接收 %@ 帧  ·  替换 %@ 帧  ·  黑帧 %@",
+        @"接收 %.1f 帧/秒  ·  送出 %.1f 帧/秒\n当前延迟 %@  ·  最高 %@\n异常：重试 %@  ·  卡顿 %@  ·  丢帧 %@\n累计送出 %@ 帧  ·  保护黑帧 %@",
         [snapshot[@"receivedFPS"] doubleValue], [snapshot[@"replacedFPS"] doubleValue],
-        videoText, networkText, lagText, peakText, snapshot[@"reconnects"], stallText,
-        snapshot[@"receivedFrames"], snapshot[@"frames"], snapshot[@"blackFrames"]];
-    double audioBitrate = [snapshot[@"audioBitrate"] doubleValue];
-    NSString *audioState = ![snapshot[@"audioTrackChecked"] boolValue] ? @"待检测" :
-        ([snapshot[@"audioTrackDetected"] boolValue] ? @"有音轨" : @"未检测到音轨");
-    if ([snapshot[@"audioTrackDetected"] boolValue] && audioBitrate > 0) {
-        audioState = [NSString stringWithFormat:@"有音轨（%.0f kb/s）", audioBitrate / 1000.0];
-    }
+        lagText, peakText, snapshot[@"reconnects"], stallText, droppedText,
+        snapshot[@"frames"], snapshot[@"blackFrames"]];
     NSInteger audioMode = [snapshot[@"audioMode"] integerValue];
     BOOL routeReady = [snapshot[@"audioRouteReady"] boolValue];
-    BOOL audioPlaying = [snapshot[@"audioActuallyPlaying"] boolValue];
-    self.audioLabel.text = [NSString stringWithFormat:@"OBS 音轨：%@\n当前：%@",
-        audioState, audioPlaying ? @"正在输出音频" : @"没有输出音频"];
+    BOOL trackDetected = [snapshot[@"audioTrackDetected"] boolValue];
+    NSString *inputName = snapshot[@"audioInputName"] ?: @"未检测到";
+    NSString *outputName = snapshot[@"audioOutputName"] ?: @"未检测到";
+    if (audioMode == 2) {
+        self.audioLabel.text = trackDetected
+            ? [NSString stringWithFormat:@"声音路线：电脑 → %@ → %@ → 直播\n喇叭和麦克风同时亮才正常", outputName, inputName]
+            : @"还没有收到电脑声音\n请先检查电脑推流";
+    } else if (audioMode == 1) {
+        self.audioLabel.text = [NSString stringWithFormat:@"电脑声音送到：%@\n直播正在从 %@ 收音", outputName, inputName];
+    } else {
+        self.audioLabel.text = [NSString stringWithFormat:@"电脑声音：已关闭\n直播正在从 %@ 收音", inputName];
+    }
     [self refreshMetersWithSnapshot:snapshot];
     if (audioMode == 1) {
-        self.audioModeLabel.text = @"按 iOS 当前系统音频路线播放，可能是扬声器、听筒或耳机；不会直接变成直播 App 的麦克风。";
+        self.audioModeLabel.text = @"把电脑声音放到当前耳机或扬声器里；直播仍然从麦克风收音。";
         self.audioModeLabel.textColor = [UIColor colorWithWhite:1 alpha:0.68];
-        self.audioWarningLabel.text = @"测试音轨时使用。手机扬声器可能被真实麦克风收进去，并混入环境声或产生回声。";
+        self.audioWarningLabel.text = @"适合试听。用手机扬声器时可能会有回声。";
     } else if (audioMode == 2) {
         self.audioModeLabel.text = routeReady
-            ? @"已检测到外接输入和输出，正在把 OBS 音轨送往外接设备。"
-            : @"未检测到完整的外接输入 + 输出，已强制静音，防止声音改从手机扬声器播放。";
+            ? @"内录设备已连接，电脑声音正在送进直播。"
+            : @"请先插入内录设备；没有检测到设备时不会外放。";
         self.audioModeLabel.textColor = routeReady ? green : amber;
-        self.audioWarningLabel.text = @"需要带回录/环回能力的转接设备。显示“已检测”只代表端口存在，仍要用语音备忘录或直播预览实测。";
+        self.audioWarningLabel.text = @"适合正式直播。确认麦克风绿色电平会跳动后再开播。";
     } else {
-        self.audioModeLabel.text = @"最安全的默认模式：OBS 音轨不播放，直播 App 继续使用手机或当前外接麦克风。";
+        self.audioModeLabel.text = @"不播放电脑声音，只使用手机或外接麦克风。";
         self.audioModeLabel.textColor = [UIColor colorWithWhite:1 alpha:0.68];
-        self.audioWarningLabel.text = @"不插外接硬件时，插件不会把 OBS 声音直接注入其他 App 的麦克风。";
+        self.audioWarningLabel.text = @"适合只讲解、不需要电脑声音的直播。";
     }
 }
 
 - (void)refreshMeters {
-    if (!self.shade || self.audioPanel.hidden) return;
     [self refreshMetersWithSnapshot:CBStatusSnapshot()];
 }
 
 - (void)refreshMetersWithSnapshot:(NSDictionary<NSString *, id> *)snapshot {
-    if (!self.speakerMeter || !self.microphoneMeter) return;
     UIColor *green = [UIColor colorWithRed:0.22 green:0.78 blue:0.62 alpha:1];
     BOOL trackDetected = [snapshot[@"audioTrackDetected"] boolValue];
     BOOL audioPlaying = [snapshot[@"audioActuallyPlaying"] boolValue];
     double audioBitrate = [snapshot[@"audioBitrate"] doubleValue];
     NSString *outputName = snapshot[@"audioOutputName"] ?: @"未检测到";
-    self.speakerTitleLabel.text = [NSString stringWithFormat:@"OBS 输出 · %@", outputName];
-    if (!trackDetected) {
-        self.speakerDetailLabel.text = @"没有检测到 OBS 音轨";
-    } else if (!audioPlaying) {
-        self.speakerDetailLabel.text = @"音轨存在 · 当前静音";
-    } else if (audioBitrate > 0) {
-        self.speakerDetailLabel.text = [NSString stringWithFormat:@"正在发送 · %.0f kb/s（数据量）", audioBitrate / 1000.0];
-    } else {
-        self.speakerDetailLabel.text = @"正在发送 · 码率读取中";
-    }
-    float outputActivity = audioPlaying && trackDetected
-        ? (audioBitrate > 0 ? (float)MIN(1.0, MAX(0.12, audioBitrate / 256000.0)) : 0.18f) : 0;
-    [self.speakerMeter setProgress:outputActivity animated:YES];
-    self.speakerIcon.tintColor = audioPlaying && trackDetected ? green : UIColor.systemGrayColor;
-    self.speakerMeter.accessibilityValue = self.speakerDetailLabel.text;
-
     NSString *inputName = snapshot[@"audioInputName"] ?: @"未检测到";
-    self.microphoneTitleLabel.text = [NSString stringWithFormat:@"麦克风输入 · %@", inputName];
     double microphoneAge = [snapshot[@"microphoneAge"] doubleValue];
     BOOL capturing = [snapshot[@"microphoneSamples"] unsignedIntegerValue] > 0 &&
         microphoneAge >= 0 && microphoneAge < 0.5;
     float level = capturing ? [snapshot[@"microphoneLevel"] floatValue] : 0;
+    BOOL outputActive = audioPlaying && trackDetected;
+    UIColor *speakerColor = outputActive ? green : UIColor.systemGrayColor;
+    UIColor *microphoneColor = capturing ? green : UIColor.systemGrayColor;
+    CGFloat outputPulse = outputActive
+        ? 1.0 + 0.07 * (0.5 + 0.5 * sin(CACurrentMediaTime() * 9.0)) : 1.0;
+    CGFloat microphonePulse = capturing ? 1.0 + 0.30 * level : 1.0;
+    self.bubbleSpeakerIcon.tintColor = speakerColor;
+    self.bubbleSpeakerIcon.transform = CGAffineTransformMakeScale(outputPulse, outputPulse);
+    self.bubbleMicrophoneIcon.tintColor = microphoneColor;
+    self.bubbleMicrophoneIcon.transform = CGAffineTransformMakeScale(microphonePulse, microphonePulse);
+    self.headerSpeakerIcon.tintColor = speakerColor;
+    self.headerSpeakerIcon.transform = CGAffineTransformMakeScale(outputPulse, outputPulse);
+    self.headerMicrophoneIcon.tintColor = microphoneColor;
+    self.headerMicrophoneIcon.transform = CGAffineTransformMakeScale(microphonePulse, microphonePulse);
+    self.headerSpeakerIcon.accessibilityValue = outputActive
+        ? [NSString stringWithFormat:@"电脑声音正在从 %@ 送出", outputName] : @"电脑声音没有送出";
+    self.headerMicrophoneIcon.accessibilityValue = capturing
+        ? [NSString stringWithFormat:@"直播正在从 %@ 收音", inputName] : @"没有检测到麦克风收音";
+    self.bubble.accessibilityValue = [NSString stringWithFormat:@"%@；%@",
+        outputActive ? @"电脑声音正在送出" : @"电脑声音未送出",
+        capturing ? @"麦克风正在收音" : @"麦克风未收音"];
+
+    if (!self.speakerMeter || !self.microphoneMeter) return;
+    self.speakerTitleLabel.text = [NSString stringWithFormat:@"声音输出 · %@", outputName];
+    if (!trackDetected) {
+        self.speakerDetailLabel.text = @"没有收到电脑声音";
+    } else if (!audioPlaying) {
+        self.speakerDetailLabel.text = @"电脑有声音 · 当前没有送出";
+    } else if (audioBitrate > 0) {
+        self.speakerDetailLabel.text = [NSString stringWithFormat:@"正在送出 · %.0f kb/s", audioBitrate / 1000.0];
+    } else {
+        self.speakerDetailLabel.text = @"正在送出电脑声音";
+    }
+    float outputActivity = outputActive
+        ? (audioBitrate > 0 ? (float)MIN(1.0, MAX(0.12, audioBitrate / 256000.0)) : 0.18f) : 0;
+    [self.speakerMeter setProgress:outputActivity animated:YES];
+    self.speakerIcon.tintColor = speakerColor;
+    self.speakerIcon.transform = CGAffineTransformMakeScale(outputPulse, outputPulse);
+    self.speakerMeter.accessibilityValue = self.speakerDetailLabel.text;
+
+    self.microphoneTitleLabel.text = [NSString stringWithFormat:@"麦克风输入 · %@", inputName];
     float decibels = [snapshot[@"microphoneDB"] floatValue];
     self.microphoneDetailLabel.text = capturing
-        ? [NSString stringWithFormat:@"正在采集 · %.0f dB（实时电平）", decibels]
-        : @"未捕获到 App 的麦克风采样回调";
+        ? [NSString stringWithFormat:@"直播正在收音 · %.0f dB", decibels]
+        : @"还没有检测到直播收音";
     [self.microphoneMeter setProgress:level animated:NO];
-    self.microphoneIcon.tintColor = capturing && level > 0.03f ? green : UIColor.systemGrayColor;
+    self.microphoneIcon.tintColor = microphoneColor;
+    self.microphoneIcon.transform = CGAffineTransformMakeScale(microphonePulse, microphonePulse);
     self.microphoneMeter.accessibilityValue = self.microphoneDetailLabel.text;
 }
 
