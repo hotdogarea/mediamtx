@@ -111,17 +111,47 @@ static NSInteger const CBBubbleTag = 902174;
     return controls;
 }
 
+- (BOOL)isUsableHostWindow:(UIWindow *)window {
+    if (!window || window.hidden || window.alpha <= 0.01 || !window.rootViewController || CGRectIsEmpty(window.bounds)) {
+        return NO;
+    }
+
+    // Never attach controls to transient UIKit-owned input/status windows. Douyin can
+    // create another application window for the live page, which is intentionally kept.
+    NSString *className = NSStringFromClass(window.class);
+    NSArray<NSString *> *excludedFragments = @[
+        @"Keyboard", @"TextEffects", @"InputSet", @"StatusBar", @"RemoteKeyboard"
+    ];
+    for (NSString *fragment in excludedFragments) {
+        if ([className rangeOfString:fragment options:NSCaseInsensitiveSearch].location != NSNotFound) {
+            return NO;
+        }
+    }
+    return YES;
+}
+
+- (UIWindow *)frontmostWindow:(NSArray<UIWindow *> *)windows {
+    UIWindow *frontmost = nil;
+    for (UIWindow *window in windows) {
+        if (![self isUsableHostWindow:window]) continue;
+
+        // UIKit keeps windows ordered back-to-front. Taking the last window at the
+        // highest level follows full-screen live/recording pages even when they are
+        // not marked as the key window yet.
+        if (!frontmost || window.windowLevel >= frontmost.windowLevel) {
+            frontmost = window;
+        }
+    }
+    return frontmost;
+}
+
 - (UIWindow *)activeWindow {
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:UIWindowScene.class] || scene.activationState != UISceneActivationStateForegroundActive) continue;
-        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-            if (window.isKeyWindow && window.rootViewController && window.windowLevel == UIWindowLevelNormal) return window;
-        }
+        UIWindow *window = [self frontmostWindow:((UIWindowScene *)scene).windows];
+        if (window) return window;
     }
-    for (UIWindow *window in UIApplication.sharedApplication.windows) {
-        if (window.rootViewController && window.windowLevel == UIWindowLevelNormal) return window;
-    }
-    return nil;
+    return [self frontmostWindow:UIApplication.sharedApplication.windows];
 }
 
 - (void)installIfNeeded {
@@ -180,6 +210,14 @@ static NSInteger const CBBubbleTag = 902174;
         self.meterTimer = [NSTimer timerWithTimeInterval:0.08 target:self selector:@selector(refreshMeters)
                                                 userInfo:nil repeats:YES];
         [NSRunLoop.mainRunLoop addTimer:self.meterTimer forMode:NSRunLoopCommonModes];
+    }
+
+    // A live page can cover the existing controls with a newly-added full-screen
+    // view without replacing its UIWindow. Restore our z-order on every health tick.
+    if (self.shade && self.shade.superview == window) {
+        [window bringSubviewToFront:self.shade];
+    } else if (self.bubble && self.bubble.superview == window) {
+        [window bringSubviewToFront:self.bubble];
     }
     [self refreshStatus];
 }
