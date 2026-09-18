@@ -108,7 +108,7 @@ static NSInteger const CBBubbleTag = 902174;
 @property (nonatomic, strong) UIButton *diagnosticsDisclosureButton;
 @property (nonatomic, strong) UIStackView *diagnosticsPanel;
 @property (nonatomic, strong) UITextView *diagnosticsTextView;
-@property (nonatomic, strong) UIButton *copyDiagnosticsButton;
+@property (nonatomic, strong) UIButton *diagnosticsCopyButton;
 @property (nonatomic, assign) BOOL diagnosticsExpanded;
 @property (nonatomic, strong) NSTimer *meterTimer;
 + (instancetype)shared;
@@ -574,18 +574,18 @@ static NSInteger const CBBubbleTag = 902174;
     self.diagnosticsTextView.textContainerInset = UIEdgeInsetsMake(10, 10, 10, 10);
     self.diagnosticsTextView.accessibilityLabel = @"播了么运行诊断日志";
     [self.diagnosticsTextView.heightAnchor constraintEqualToConstant:250].active = YES;
-    self.copyDiagnosticsButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [self.copyDiagnosticsButton setTitle:@"复制全部日志" forState:UIControlStateNormal];
-    [self.copyDiagnosticsButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    self.copyDiagnosticsButton.backgroundColor = [UIColor colorWithWhite:1 alpha:0.12];
-    self.copyDiagnosticsButton.layer.cornerRadius = 10;
-    self.copyDiagnosticsButton.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
-    self.copyDiagnosticsButton.accessibilityLabel = @"复制全部诊断日志到剪贴板";
-    [self.copyDiagnosticsButton addTarget:self action:@selector(copyDiagnostics)
+    self.diagnosticsCopyButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [self.diagnosticsCopyButton setTitle:@"复制全部日志" forState:UIControlStateNormal];
+    [self.diagnosticsCopyButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    self.diagnosticsCopyButton.backgroundColor = [UIColor colorWithWhite:1 alpha:0.12];
+    self.diagnosticsCopyButton.layer.cornerRadius = 10;
+    self.diagnosticsCopyButton.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+    self.diagnosticsCopyButton.accessibilityLabel = @"复制全部诊断日志到剪贴板";
+    [self.diagnosticsCopyButton addTarget:self action:@selector(copyDiagnostics)
                              forControlEvents:UIControlEventTouchUpInside];
-    [self.copyDiagnosticsButton.heightAnchor constraintEqualToConstant:40].active = YES;
+    [self.diagnosticsCopyButton.heightAnchor constraintEqualToConstant:40].active = YES;
     self.diagnosticsPanel = [[UIStackView alloc] initWithArrangedSubviews:@[
-        diagnosticsHint, self.diagnosticsTextView, self.copyDiagnosticsButton
+        diagnosticsHint, self.diagnosticsTextView, self.diagnosticsCopyButton
     ]];
     self.diagnosticsPanel.axis = UILayoutConstraintAxisVertical;
     self.diagnosticsPanel.spacing = 8;
@@ -651,7 +651,7 @@ static NSInteger const CBBubbleTag = 902174;
     self.diagnosticsDisclosureButton = nil;
     self.diagnosticsPanel = nil;
     self.diagnosticsTextView = nil;
-    self.copyDiagnosticsButton = nil;
+    self.diagnosticsCopyButton = nil;
     self.diagnosticsExpanded = NO;
 }
 
@@ -778,12 +778,12 @@ static NSInteger const CBBubbleTag = 902174;
     NSString *report = BolemeDiagnosticReport();
     UIPasteboard.generalPasteboard.string = report;
     self.diagnosticsTextView.text = report;
-    [self.copyDiagnosticsButton setTitle:@"已复制，可以直接发给技术支持" forState:UIControlStateNormal];
-    self.copyDiagnosticsButton.accessibilityLabel = @"诊断日志已复制";
+    [self.diagnosticsCopyButton setTitle:@"已复制，可以直接发给技术支持" forState:UIControlStateNormal];
+    self.diagnosticsCopyButton.accessibilityLabel = @"诊断日志已复制";
     BolemeLog(@"用户复制诊断日志");
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [self.copyDiagnosticsButton setTitle:@"复制全部日志" forState:UIControlStateNormal];
-        self.copyDiagnosticsButton.accessibilityLabel = @"复制全部诊断日志到剪贴板";
+        [self.diagnosticsCopyButton setTitle:@"复制全部日志" forState:UIControlStateNormal];
+        self.diagnosticsCopyButton.accessibilityLabel = @"复制全部诊断日志到剪贴板";
     });
 }
 
