@@ -18,6 +18,13 @@ static NSInteger const CBBubbleTag = 902174;
 @property (nonatomic, strong) UILabel *metricsLabel;
 @property (nonatomic, strong) UILabel *audioLabel;
 @property (nonatomic, strong) UILabel *hintLabel;
+@property (nonatomic, strong) UISegmentedControl *tabControl;
+@property (nonatomic, strong) UIStackView *videoPanel;
+@property (nonatomic, strong) UIStackView *audioPanel;
+@property (nonatomic, strong) UISegmentedControl *audioModeControl;
+@property (nonatomic, strong) UILabel *audioModeLabel;
+@property (nonatomic, strong) UILabel *audioRouteLabel;
+@property (nonatomic, strong) UILabel *audioWarningLabel;
 + (instancetype)shared;
 - (void)installIfNeeded;
 @end
@@ -146,7 +153,7 @@ static NSInteger const CBBubbleTag = 902174;
     [shade addSubview:card];
     self.card = card;
 
-    UILabel *title = [self label:@"画面输入" size:21 color:UIColor.whiteColor];
+    UILabel *title = [self label:@"OBS 输入" size:21 color:UIColor.whiteColor];
     title.font = [UIFont systemFontOfSize:21 weight:UIFontWeightSemibold];
     UILabel *dragHint = [self label:@"按住这里上下移动" size:11
                                   color:[UIColor colorWithWhite:1 alpha:0.55]];
@@ -165,6 +172,12 @@ static NSInteger const CBBubbleTag = 902174;
     header.alignment = UIStackViewAlignmentCenter;
     [header addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragPanel:)]];
     [header.heightAnchor constraintEqualToConstant:40].active = YES;
+
+    self.tabControl = [[UISegmentedControl alloc] initWithItems:@[@"画面", @"音频"]];
+    self.tabControl.selectedSegmentIndex = 0;
+    self.tabControl.accessibilityLabel = @"切换画面或音频设置";
+    [self.tabControl addTarget:self action:@selector(changeTab) forControlEvents:UIControlEventValueChanged];
+    [self.tabControl.heightAnchor constraintEqualToConstant:34].active = YES;
 
     self.stateLabel = [self label:@"等待画面…" size:14 color:UIColor.systemGrayColor];
     self.stateLabel.numberOfLines = 2;
@@ -237,14 +250,49 @@ static NSInteger const CBBubbleTag = 902174;
     self.metricsLabel = [self label:@"接收 --  ·  输出 --" size:12 color:[UIColor colorWithWhite:1 alpha:0.66]];
     self.metricsLabel.numberOfLines = 5;
     [self.metricsLabel.heightAnchor constraintEqualToConstant:86].active = YES;
-    self.audioLabel = [self label:@"OBS 音轨：待检测" size:12
-                                 color:[UIColor colorWithWhite:1 alpha:0.66]];
+    self.videoPanel = [[UIStackView alloc] initWithArrangedSubviews:@[
+        self.stateLabel, inputRow, self.hintLabel, switchRow, rotationRow, self.metricsLabel
+    ]];
+    self.videoPanel.axis = UILayoutConstraintAxisVertical;
+    self.videoPanel.spacing = 8;
+
+    self.audioLabel = [self label:@"OBS 音轨：待检测" size:14 color:UIColor.whiteColor];
     self.audioLabel.numberOfLines = 2;
-    [self.audioLabel.heightAnchor constraintEqualToConstant:34].active = YES;
+    [self.audioLabel.heightAnchor constraintEqualToConstant:42].active = YES;
+
+    UILabel *audioModeTitle = [self label:@"声音输出方式" size:13
+                                      color:[UIColor colorWithWhite:1 alpha:0.62]];
+    [audioModeTitle.heightAnchor constraintEqualToConstant:20].active = YES;
+    self.audioModeControl = [[UISegmentedControl alloc] initWithItems:@[@"静音", @"本机播放", @"外接回录"]];
+    NSInteger audioMode = [NSUserDefaults.standardUserDefaults integerForKey:CBAudioModeKey];
+    self.audioModeControl.selectedSegmentIndex = MAX(0, MIN(2, audioMode));
+    self.audioModeControl.accessibilityLabel = @"OBS 音频输出方式";
+    [self.audioModeControl addTarget:self action:@selector(changeAudioMode) forControlEvents:UIControlEventValueChanged];
+    [self.audioModeControl.heightAnchor constraintEqualToConstant:36].active = YES;
+
+    self.audioModeLabel = [self label:@"默认静音；直播 App 继续使用真实麦克风" size:12
+                                     color:[UIColor colorWithWhite:1 alpha:0.68]];
+    self.audioModeLabel.numberOfLines = 3;
+    [self.audioModeLabel.heightAnchor constraintEqualToConstant:52].active = YES;
+    self.audioRouteLabel = [self label:@"输入：未检测到\n输出：未检测到" size:12
+                                      color:[UIColor colorWithWhite:1 alpha:0.68]];
+    self.audioRouteLabel.numberOfLines = 2;
+    [self.audioRouteLabel.heightAnchor constraintEqualToConstant:38].active = YES;
+    self.audioWarningLabel = [self label:@"这里控制的是音轨播放，不是软件麦克风注入。" size:11
+                                        color:UIColor.systemOrangeColor];
+    self.audioWarningLabel.numberOfLines = 3;
+    [self.audioWarningLabel.heightAnchor constraintEqualToConstant:48].active = YES;
+
+    self.audioPanel = [[UIStackView alloc] initWithArrangedSubviews:@[
+        self.audioLabel, audioModeTitle, self.audioModeControl, self.audioModeLabel,
+        self.audioRouteLabel, self.audioWarningLabel
+    ]];
+    self.audioPanel.axis = UILayoutConstraintAxisVertical;
+    self.audioPanel.spacing = 8;
+    self.audioPanel.hidden = YES;
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        header, self.stateLabel, inputRow, self.hintLabel, switchRow, rotationRow,
-        self.metricsLabel, self.audioLabel
+        header, self.tabControl, self.videoPanel, self.audioPanel
     ]];
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 8;
@@ -275,6 +323,13 @@ static NSInteger const CBBubbleTag = 902174;
     self.metricsLabel = nil;
     self.audioLabel = nil;
     self.hintLabel = nil;
+    self.tabControl = nil;
+    self.videoPanel = nil;
+    self.audioPanel = nil;
+    self.audioModeControl = nil;
+    self.audioModeLabel = nil;
+    self.audioRouteLabel = nil;
+    self.audioWarningLabel = nil;
 }
 
 - (BOOL)saveAddress {
@@ -311,6 +366,21 @@ static NSInteger const CBBubbleTag = 902174;
 
 - (void)changeRotation {
     [NSUserDefaults.standardUserDefaults setInteger:self.rotationControl.selectedSegmentIndex * 90 forKey:CBRotationKey];
+}
+
+- (void)changeTab {
+    BOOL showAudio = self.tabControl.selectedSegmentIndex == 1;
+    self.videoPanel.hidden = showAudio;
+    self.audioPanel.hidden = !showAudio;
+    [UIView animateWithDuration:0.16 animations:^{
+        [self.card.superview layoutIfNeeded];
+    }];
+}
+
+- (void)changeAudioMode {
+    [NSUserDefaults.standardUserDefaults setInteger:self.audioModeControl.selectedSegmentIndex
+                                             forKey:CBAudioModeKey];
+    [self refreshStatus];
 }
 
 - (BOOL)textFieldShouldReturn:(UITextField *)textField {
@@ -374,8 +444,28 @@ static NSInteger const CBBubbleTag = 902174;
     if ([snapshot[@"audioTrackDetected"] boolValue] && audioBitrate > 0) {
         audioState = [NSString stringWithFormat:@"有音轨（%.0f kb/s）", audioBitrate / 1000.0];
     }
-    self.audioLabel.text = [NSString stringWithFormat:
-        @"OBS 音频：%@\n音频未注入直播 App；它仍使用手机麦克风", audioState];
+    NSInteger audioMode = [snapshot[@"audioMode"] integerValue];
+    BOOL routeReady = [snapshot[@"audioRouteReady"] boolValue];
+    BOOL audioPlaying = [snapshot[@"audioActuallyPlaying"] boolValue];
+    self.audioLabel.text = [NSString stringWithFormat:@"OBS 音轨：%@\n当前：%@",
+        audioState, audioPlaying ? @"正在输出音频" : @"没有输出音频"];
+    self.audioRouteLabel.text = [NSString stringWithFormat:@"输入：%@\n输出：%@",
+        snapshot[@"audioInputName"], snapshot[@"audioOutputName"]];
+    if (audioMode == 1) {
+        self.audioModeLabel.text = @"按 iOS 当前系统音频路线播放，可能是扬声器、听筒或耳机；不会直接变成直播 App 的麦克风。";
+        self.audioModeLabel.textColor = [UIColor colorWithWhite:1 alpha:0.68];
+        self.audioWarningLabel.text = @"测试音轨时使用。手机扬声器可能被真实麦克风收进去，并混入环境声或产生回声。";
+    } else if (audioMode == 2) {
+        self.audioModeLabel.text = routeReady
+            ? @"已检测到外接输入和输出，正在把 OBS 音轨送往外接设备。"
+            : @"未检测到完整的外接输入 + 输出，已强制静音，防止声音改从手机扬声器播放。";
+        self.audioModeLabel.textColor = routeReady ? green : amber;
+        self.audioWarningLabel.text = @"需要带回录/环回能力的转接设备。显示“已检测”只代表端口存在，仍要用语音备忘录或直播预览实测。";
+    } else {
+        self.audioModeLabel.text = @"最安全的默认模式：OBS 音轨不播放，直播 App 继续使用手机或当前外接麦克风。";
+        self.audioModeLabel.textColor = [UIColor colorWithWhite:1 alpha:0.68];
+        self.audioWarningLabel.text = @"不插外接硬件时，插件不会把 OBS 声音直接注入其他 App 的麦克风。";
+    }
 }
 
 @end

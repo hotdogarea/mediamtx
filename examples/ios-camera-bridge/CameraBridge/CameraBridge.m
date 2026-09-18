@@ -10,6 +10,25 @@
 NSString * const CBStreamURLKey = @"CameraBridge.StreamURL";
 NSString * const CBEnabledKey = @"CameraBridge.Enabled";
 NSString * const CBRotationKey = @"CameraBridge.Rotation";
+NSString * const CBAudioModeKey = @"CameraBridge.AudioMode";
+
+typedef NS_ENUM(NSInteger, CBAudioMode) {
+    CBAudioModeMuted = 0,
+    CBAudioModeDevicePlayback = 1,
+    CBAudioModeExternalLoopback = 2,
+};
+
+static BOOL CBPortTypeIsExternalInput(NSString *type) {
+    return [type isEqualToString:AVAudioSessionPortHeadsetMic] ||
+        [type isEqualToString:AVAudioSessionPortLineIn] ||
+        [type isEqualToString:AVAudioSessionPortUSBAudio];
+}
+
+static BOOL CBPortTypeIsExternalOutput(NSString *type) {
+    return [type isEqualToString:AVAudioSessionPortHeadphones] ||
+        [type isEqualToString:AVAudioSessionPortLineOut] ||
+        [type isEqualToString:AVAudioSessionPortUSBAudio];
+}
 
 NSString *CBNormalizedStreamURL(NSString *input) {
     NSString *value = [input ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -120,6 +139,11 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
 @property (nonatomic, assign) double peakLiveEdgeLag;
 @property (nonatomic, assign) NSInteger playerStalls;
 @property (nonatomic, assign) NSInteger droppedFrames;
+@property (nonatomic, assign) NSInteger audioMode;
+@property (nonatomic, assign) BOOL audioRouteReady;
+@property (nonatomic, assign) BOOL audioActuallyPlaying;
+@property (nonatomic, copy) NSString *audioInputName;
+@property (nonatomic, copy) NSString *audioOutputName;
 @property (nonatomic, assign) CFTimeInterval lastControlCheck;
 @property (nonatomic, assign) CFAbsoluteTime lastConnectTime;
 @property (nonatomic, assign) CFAbsoluteTime retryAfter;
@@ -151,6 +175,8 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
         _peakLiveEdgeLag = -1;
         _playerStalls = -1;
         _droppedFrames = -1;
+        _audioInputName = @"未检测到";
+        _audioOutputName = @"未检测到";
     }
     return self;
 }
@@ -223,9 +249,23 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     NSString *urlString = CBNormalizedStreamURL([defaults stringForKey:CBStreamURLKey]);
     BOOL enabled = [defaults boolForKey:CBEnabledKey];
+    NSInteger audioMode = [defaults integerForKey:CBAudioModeKey];
+    if (audioMode < CBAudioModeMuted || audioMode > CBAudioModeExternalLoopback) {
+        audioMode = CBAudioModeMuted;
+    }
+    AVAudioSessionRouteDescription *route = AVAudioSession.sharedInstance.currentRoute;
+    AVAudioSessionPortDescription *input = route.inputs.firstObject;
+    AVAudioSessionPortDescription *output = route.outputs.firstObject;
+    BOOL externalInput = input && CBPortTypeIsExternalInput(input.portType);
+    BOOL externalOutput = output && CBPortTypeIsExternalOutput(output.portType);
+    self.audioMode = audioMode;
+    self.audioRouteReady = externalInput && externalOutput;
+    self.audioInputName = input.portName.length ? input.portName : @"未检测到";
+    self.audioOutputName = output.portName.length ? output.portName : @"未检测到";
 
     if (!enabled || !urlString) {
         if (self.player) [self.player pause];
+        self.audioActuallyPlaying = NO;
         self.player = nil;
         self.videoOutput = nil;
         self.currentURL = nil;
@@ -251,11 +291,19 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
         [item addOutput:self.videoOutput];
         item.preferredForwardBufferDuration = 0;
         self.player = [AVPlayer playerWithPlayerItem:item];
-        self.player.muted = YES; // Only video frames are replaced; the microphone is untouched.
+        self.player.muted = YES;
         self.player.automaticallyWaitsToMinimizeStalling = YES;
         [self.player play];
         self.state = @"connecting to HLS";
     }
+
+    // Device playback deliberately follows the system route. External-loopback mode is fail-closed:
+    // it only emits audio while both a wired/USB input and output are present, and never falls back
+    // to the built-in speaker. This is playback routing, not software microphone injection.
+    BOOL shouldPlayAudio = audioMode == CBAudioModeDevicePlayback ||
+        (audioMode == CBAudioModeExternalLoopback && self.audioRouteReady);
+    self.player.muted = !shouldPlayAudio;
+    self.audioActuallyPlaying = shouldPlayAudio;
 
     if (self.player.currentItem.status == AVPlayerItemStatusFailed) {
         self.state = self.player.currentItem.error.localizedDescription ?: @"HLS playback failed";
@@ -472,6 +520,11 @@ NSDictionary<NSString *, id> *CBStatusSnapshot(void) {
                   @"audioBitrate": @(receiver.audioBitrate),
                   @"audioTrackDetected": @(receiver.audioTrackDetected),
                   @"audioTrackChecked": @(receiver.audioTrackChecked),
+                  @"audioMode": @(receiver.audioMode),
+                  @"audioRouteReady": @(receiver.audioRouteReady),
+                  @"audioActuallyPlaying": @(receiver.audioActuallyPlaying),
+                  @"audioInputName": receiver.audioInputName ?: @"未检测到",
+                  @"audioOutputName": receiver.audioOutputName ?: @"未检测到",
                   @"liveEdgeLag": @(receiver.liveEdgeLag),
                   @"peakLiveEdgeLag": @(receiver.peakLiveEdgeLag),
                   @"playerStalls": @(receiver.playerStalls),
