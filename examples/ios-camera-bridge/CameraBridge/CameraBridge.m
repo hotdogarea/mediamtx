@@ -216,7 +216,7 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
         item.preferredForwardBufferDuration = 0;
         self.player = [AVPlayer playerWithPlayerItem:item];
         self.player.muted = YES; // Only video frames are replaced; the microphone is untouched.
-        self.player.automaticallyWaitsToMinimizeStalling = NO;
+        self.player.automaticallyWaitsToMinimizeStalling = YES;
         [self.player play];
         self.state = @"connecting to HLS";
     }
@@ -232,7 +232,7 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
 
     CFAbsoluteTime mostRecentFrame;
     @synchronized (self) { mostRecentFrame = self.latestFrameTime; }
-    CFTimeInterval frameTimeout = mostRecentFrame > self.lastConnectTime ? 5.0 : 12.0;
+    CFTimeInterval frameTimeout = 12.0;
     if (CFAbsoluteTimeGetCurrent() - MAX(self.lastConnectTime, mostRecentFrame) > frameTimeout) {
         self.state = @"HLS stalled; reconnecting";
         self.reconnectCount++;
@@ -416,6 +416,9 @@ NSDictionary<NSString *, id> *CBStatusSnapshot(void) {
     @synchronized (receiver) {
         CFTimeInterval age = receiver.latestFrameTime > 0 ? CFAbsoluteTimeGetCurrent() - receiver.latestFrameTime : -1;
         OSType pixelFormat = receiver.cameraPixelFormat;
+        BOOL supportedFormat = pixelFormat == kCVPixelFormatType_32BGRA ||
+            pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange ||
+            pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
         NSString *pixelFormatLabel = pixelFormat == kCVPixelFormatType_32BGRA ? @"BGRA" :
             (pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange ? @"NV12 full" :
             (pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange ? @"NV12 video" :
@@ -433,6 +436,7 @@ NSDictionary<NSString *, id> *CBStatusSnapshot(void) {
                   @"playerStalls": @(receiver.playerStalls),
                   @"droppedFrames": @(receiver.droppedFrames),
                   @"cameraFrames": @(receiver.cameraCallbackCount),
+                  @"supportedCameraFormat": @(supportedFormat),
                   @"pixelFormat": pixelFormatLabel,
                   @"url": receiver.currentURL ?: @"" };
     }

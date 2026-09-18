@@ -16,4 +16,5 @@ jobs:
           name: ios-camera-bridge-demo
           path: |
             examples/ios-camera-bridge/out/CameraBridgeDemo.ipa
+            examples/ios-camera-bridge/out/CameraBridgeCleanHost.ipa
             examples/ios-camera-bridge/out/CameraBridge.dylib

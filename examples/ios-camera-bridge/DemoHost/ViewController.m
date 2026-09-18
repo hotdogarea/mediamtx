@@ -1,5 +1,10 @@
 #import "ViewController.h"
+#ifndef CB_CLEAN_HOST
+#define CB_CLEAN_HOST 0
+#endif
+#if !CB_CLEAN_HOST
 #import "CameraBridge.h"
+#endif
 
 #import <AVFoundation/AVFoundation.h>
 #import <CoreImage/CoreImage.h>
@@ -25,13 +30,14 @@
     titleLabel.font = [UIFont boldSystemFontOfSize:21];
 
     UILabel *hint = [UILabel new];
-    hint.text = @"点右侧 OBS 设置画面源；可拖动按钮避开预览。";
+    hint.text = CB_CLEAN_HOST ? @"普通摄像头 App：注入插件后再检查 OBS 按钮。"
+                              : @"点右侧 OBS 设置画面源；可拖动按钮避开预览。";
     hint.textColor = UIColor.secondaryLabelColor;
     hint.font = [UIFont systemFontOfSize:13];
     hint.numberOfLines = 2;
 
     self.statusLabel = [UILabel new];
-    self.statusLabel.text = @"等待相机权限…";
+    self.statusLabel.text = CB_CLEAN_HOST ? @"相机预览；注入状态请看 OBS 面板" : @"等待相机权限…";
     self.statusLabel.font = [UIFont systemFontOfSize:13];
     self.statusLabel.numberOfLines = 0;
 
@@ -51,16 +57,20 @@
         [stack.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-16]
     ]];
 
+#if !CB_CLEAN_HOST
     [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(updateStatus) userInfo:nil repeats:YES];
+#endif
     [self requestCamera];
 }
 
 - (void)updateStatus {
+#if !CB_CLEAN_HOST
     NSDictionary *status = CBStatusSnapshot();
     self.statusLabel.text = [NSString stringWithFormat:
         @"状态：%@\n接收 %.1f 帧/秒 · 替换 %.1f 帧/秒\n相机 %@ · 累计替换 %@ 帧 · 黑帧 %@",
         status[@"state"], [status[@"receivedFPS"] doubleValue], [status[@"replacedFPS"] doubleValue],
         status[@"pixelFormat"], status[@"frames"], status[@"blackFrames"]];
+#endif
 }
 
 - (void)requestCamera {

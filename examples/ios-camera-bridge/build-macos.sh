@@ -8,15 +8,17 @@ command -v xcodegen >/dev/null || { echo "Install XcodeGen first: brew install x
 command -v xcodebuild >/dev/null || { echo "Xcode is required" >&2; exit 1; }
 
 xcodegen generate
-xcodebuild -project CameraBridgeDemo.xcodeproj -scheme CameraBridgeDemo \
-  -configuration Release -sdk iphoneos -arch arm64 \
-  -derivedDataPath "$project_dir/build" CODE_SIGNING_ALLOWED=NO build
-
-mkdir -p "$project_dir/out/Payload"
-ditto "$project_dir/build/Build/Products/Release-iphoneos/CameraBridgeDemo.app" \
-  "$project_dir/out/Payload/CameraBridgeDemo.app"
-cd "$project_dir/out"
-ditto -c -k --sequesterRsrc --keepParent Payload CameraBridgeDemo.ipa
+for app in CameraBridgeDemo CameraBridgeCleanHost; do
+  xcodebuild -project CameraBridgeDemo.xcodeproj -scheme "$app" \
+    -configuration Release -sdk iphoneos -arch arm64 \
+    -derivedDataPath "$project_dir/build" CODE_SIGNING_ALLOWED=NO build
+  mkdir -p "$project_dir/out/$app/Payload"
+  ditto "$project_dir/build/Build/Products/Release-iphoneos/$app.app" \
+    "$project_dir/out/$app/Payload/$app.app"
+  cd "$project_dir/out/$app"
+  ditto -c -k --sequesterRsrc --keepParent Payload "../$app.ipa"
+  cd "$project_dir"
+done
 
 sdk_path="$(xcrun --sdk iphoneos --show-sdk-path)"
 xcrun --sdk iphoneos clang -arch arm64 -dynamiclib -fobjc-arc \
@@ -30,4 +32,5 @@ xcrun --sdk iphoneos clang -arch arm64 -dynamiclib -fobjc-arc \
 codesign --force --sign - "$project_dir/out/CameraBridge.dylib"
 
 echo "Built: $project_dir/out/CameraBridgeDemo.ipa"
+echo "Built: $project_dir/out/CameraBridgeCleanHost.ipa"
 echo "Built: $project_dir/out/CameraBridge.dylib"

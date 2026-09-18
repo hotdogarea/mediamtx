@@ -310,7 +310,7 @@ static NSInteger const CBBubbleTag = 902174;
     NSString *state = snapshot[@"state"];
     NSString *headline = !enabled ? @"已暂停" : (fresh ? @"画面稳定" : @"正在缓冲 / 重连");
     NSString *detail = @"等待视频";
-    if ([state isEqualToString:@"unsupported camera pixel format"]) {
+    if (cameraSeen && ![snapshot[@"supportedCameraFormat"] boolValue]) {
         headline = @"相机格式需适配";
         detail = snapshot[@"pixelFormat"];
     } else if (!cameraSeen) {

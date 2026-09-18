@@ -1,6 +1,6 @@
 # Demo-only configuration: conservative HLS for iOS AVPlayer compatibility.
 # Use the full mediamtx.yml for production, with authentication and TLS.
 hlsVariant: mpegts
-hlsSegmentDuration: 1s
+hlsSegmentDuration: 2s
 paths:
   all_others:
