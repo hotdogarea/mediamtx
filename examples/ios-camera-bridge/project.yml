@@ -11,6 +11,9 @@ targets:
         excludes:
           - Info.plist
       - path: CameraBridge
+    dependencies:
+      - sdk: Security.framework
+      - sdk: CryptoKit.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.CameraBridgeDemo

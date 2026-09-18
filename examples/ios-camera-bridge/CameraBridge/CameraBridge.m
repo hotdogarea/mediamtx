@@ -1,4 +1,5 @@
 #import "CameraBridge.h"
+#import "BolemeLicense.h"
 
 #import <AVFoundation/AVFoundation.h>
 #import <AudioToolbox/AudioToolbox.h>
@@ -259,7 +260,7 @@ static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BO
     }
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     NSString *urlString = CBNormalizedStreamURL([defaults stringForKey:CBStreamURLKey]);
-    BOOL enabled = [defaults boolForKey:CBEnabledKey];
+    BOOL enabled = [defaults boolForKey:CBEnabledKey] && [BolemeLicenseManager shared].isAuthorized;
     NSInteger audioMode = [defaults integerForKey:CBAudioModeKey];
     if (audioMode < CBAudioModeMuted || audioMode > CBAudioModeExternalLoopback) {
         audioMode = CBAudioModeMuted;
@@ -606,7 +607,8 @@ static float CBMeasureAudioLevel(CMSampleBufferRef sample, float *decibels) {
         receiver.cameraCallbackCount++;
         if (originalBuffer) receiver.cameraPixelFormat = CVPixelBufferGetPixelFormatType(originalBuffer);
     }
-    BOOL enabled = [NSUserDefaults.standardUserDefaults boolForKey:CBEnabledKey];
+    BOOL enabled = [NSUserDefaults.standardUserDefaults boolForKey:CBEnabledKey] &&
+        [BolemeLicenseManager shared].isAuthorized;
     BOOL placeholder = NO;
     CMSampleBufferRef replacement = enabled ? [receiver copyReplacementForSample:sample placeholder:&placeholder] : NULL;
     id<AVCaptureVideoDataOutputSampleBufferDelegate> delegate = self.original;
@@ -641,7 +643,10 @@ static void CBSetDelegate(id output, SEL selector, id delegate, dispatch_queue_t
     proxy.original = delegate;
     objc_setAssociatedObject(output, &CBProxyAssociation, proxy, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     CBOriginalSetDelegate(output, selector, proxy, queue);
-    dispatch_async(dispatch_get_main_queue(), ^{ [[CBReceiver shared] startOnMainThread]; });
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [[BolemeLicenseManager shared] start];
+        [[CBReceiver shared] startOnMainThread];
+    });
 }
 
 static void CBSetAudioDelegate(id output, SEL selector, id delegate, dispatch_queue_t queue) {
@@ -654,7 +659,10 @@ static void CBSetAudioDelegate(id output, SEL selector, id delegate, dispatch_qu
     proxy.original = delegate;
     objc_setAssociatedObject(output, &CBAudioProxyAssociation, proxy, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     CBOriginalSetAudioDelegate(output, selector, proxy, queue);
-    dispatch_async(dispatch_get_main_queue(), ^{ [[CBReceiver shared] startOnMainThread]; });
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [[BolemeLicenseManager shared] start];
+        [[CBReceiver shared] startOnMainThread];
+    });
 }
 
 NSDictionary<NSString *, id> *CBStatusSnapshot(void) {
@@ -719,5 +727,8 @@ __attribute__((constructor)) static void CBInstallHook(void) {
         CBOriginalSetAudioDelegate = (void *)method_getImplementation(audioMethod);
         method_setImplementation(audioMethod, (IMP)CBSetAudioDelegate);
     }
-    dispatch_async(dispatch_get_main_queue(), ^{ [[CBReceiver shared] startOnMainThread]; });
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [[BolemeLicenseManager shared] start];
+        [[CBReceiver shared] startOnMainThread];
+    });
 }

@@ -25,14 +25,28 @@ for app in CameraBridgeDemo CameraBridgeCleanHost; do
 done
 
 sdk_path="$(xcrun --sdk iphoneos --show-sdk-path)"
-xcrun --sdk iphoneos clang -arch arm64 -dynamiclib -fobjc-arc \
-  -miphoneos-version-min=14.0 -isysroot "$sdk_path" \
-  -I "$project_dir/CameraBridge" \
+object_dir="$project_dir/build/boleme-objects"
+rm -rf "$object_dir"
+mkdir -p "$object_dir"
+common_flags=(
+  -arch arm64 -fobjc-arc -miphoneos-version-min=14.0 -isysroot "$sdk_path"
+  -I "$project_dir/CameraBridge"
+)
+xcrun --sdk iphoneos clang "${common_flags[@]}" -c \
+  "$project_dir/CameraBridge/CameraBridge.m" -o "$object_dir/CameraBridge.o"
+xcrun --sdk iphoneos clang "${common_flags[@]}" -c \
+  "$project_dir/CameraBridge/BridgeControls.m" -o "$object_dir/BridgeControls.o"
+xcrun --sdk iphoneos clang "${common_flags[@]}" -c \
+  "$project_dir/CameraBridge/BolemeLicense.m" -o "$object_dir/BolemeLicense.o"
+xcrun --sdk iphoneos swiftc -emit-library -parse-as-library \
+  -target arm64-apple-ios14.0 -sdk "$sdk_path" \
+  "$project_dir/CameraBridge/BolemeCrypto.swift" \
+  "$object_dir/CameraBridge.o" "$object_dir/BridgeControls.o" "$object_dir/BolemeLicense.o" \
   -framework Foundation -framework UIKit -framework AVFoundation \
-  -framework CoreMedia -framework CoreVideo -framework CoreImage -framework CoreGraphics -framework QuartzCore \
-  -Wl,-install_name,@rpath/boleme.dylib \
-  "$project_dir/CameraBridge/CameraBridge.m" \
-  "$project_dir/CameraBridge/BridgeControls.m" -o "$project_dir/out/boleme.dylib"
+  -framework CoreMedia -framework CoreVideo -framework CoreImage -framework CoreGraphics \
+  -framework QuartzCore -framework Security \
+  -Xlinker -install_name -Xlinker @rpath/boleme.dylib \
+  -o "$project_dir/out/boleme.dylib"
 codesign --force --sign - "$project_dir/out/boleme.dylib"
 
 echo "Built: $project_dir/out/boleme-demo.ipa"

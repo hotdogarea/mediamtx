@@ -1,4 +1,5 @@
 #import "CameraBridge.h"
+#import "BolemeLicense.h"
 
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -85,6 +86,12 @@ static NSInteger const CBBubbleTag = 902174;
 @property (nonatomic, strong) UISegmentedControl *tabControl;
 @property (nonatomic, strong) UIStackView *videoPanel;
 @property (nonatomic, strong) UIStackView *audioPanel;
+@property (nonatomic, strong) UIStackView *licensePanel;
+@property (nonatomic, strong) UILabel *licenseStateLabel;
+@property (nonatomic, strong) UILabel *licenseDetailLabel;
+@property (nonatomic, strong) UILabel *licenseMessageLabel;
+@property (nonatomic, strong) UITextField *licenseCodeField;
+@property (nonatomic, strong) UIButton *licenseButton;
 @property (nonatomic, strong) UISegmentedControl *audioModeControl;
 @property (nonatomic, strong) UILabel *audioModeLabel;
 @property (nonatomic, strong) UILabel *audioRouteLabel;
@@ -317,9 +324,9 @@ static NSInteger const CBBubbleTag = 902174;
     [header addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragPanel:)]];
     [header.heightAnchor constraintEqualToConstant:40].active = YES;
 
-    self.tabControl = [[UISegmentedControl alloc] initWithItems:@[@"画面", @"声音"]];
-    self.tabControl.selectedSegmentIndex = 0;
-    self.tabControl.accessibilityLabel = @"切换画面或音频设置";
+    self.tabControl = [[UISegmentedControl alloc] initWithItems:@[@"画面", @"声音", @"授权"]];
+    self.tabControl.selectedSegmentIndex = [BolemeLicenseManager shared].isAuthorized ? 0 : 2;
+    self.tabControl.accessibilityLabel = @"切换画面、音频或授权设置";
     [self.tabControl addTarget:self action:@selector(changeTab) forControlEvents:UIControlEventValueChanged];
     [self.tabControl.heightAnchor constraintEqualToConstant:34].active = YES;
 
@@ -482,8 +489,61 @@ static NSInteger const CBBubbleTag = 902174;
     self.audioPanel.spacing = 8;
     self.audioPanel.hidden = YES;
 
+    self.licenseStateLabel = [self label:@"推流助手未激活" size:18 color:UIColor.whiteColor];
+    self.licenseStateLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold];
+    [self.licenseStateLabel.heightAnchor constraintEqualToConstant:28].active = YES;
+    self.licenseDetailLabel = [self label:@"购买激活码后，在这里完成本机授权。" size:13
+                                            color:[UIColor colorWithWhite:1 alpha:0.70]];
+    self.licenseDetailLabel.numberOfLines = 3;
+    [self.licenseDetailLabel.heightAnchor constraintEqualToConstant:54].active = YES;
+
+    self.licenseCodeField = [UITextField new];
+    self.licenseCodeField.backgroundColor = [UIColor colorWithWhite:1 alpha:0.09];
+    self.licenseCodeField.textColor = UIColor.whiteColor;
+    self.licenseCodeField.font = [UIFont monospacedSystemFontOfSize:14 weight:UIFontWeightMedium];
+    self.licenseCodeField.layer.cornerRadius = 10;
+    self.licenseCodeField.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
+    self.licenseCodeField.autocorrectionType = UITextAutocorrectionTypeNo;
+    self.licenseCodeField.clearButtonMode = UITextFieldViewModeWhileEditing;
+    self.licenseCodeField.returnKeyType = UIReturnKeyGo;
+    self.licenseCodeField.delegate = self;
+    self.licenseCodeField.accessibilityLabel = @"推流助手激活码";
+    self.licenseCodeField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:@"输入激活码"
+        attributes:@{NSForegroundColorAttributeName: [UIColor colorWithWhite:1 alpha:0.45]}];
+    UIView *licensePadding = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 12, 1)];
+    self.licenseCodeField.leftView = licensePadding;
+    self.licenseCodeField.leftViewMode = UITextFieldViewModeAlways;
+    self.licenseCodeField.text = [BolemeLicenseManager shared].activationCode ?: @"";
+    [self.licenseCodeField.heightAnchor constraintEqualToConstant:44].active = YES;
+
+    self.licenseButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [self.licenseButton setTitle:@"立即激活" forState:UIControlStateNormal];
+    [self.licenseButton setTitleColor:[UIColor colorWithRed:0.04 green:0.16 blue:0.13 alpha:1] forState:UIControlStateNormal];
+    self.licenseButton.backgroundColor = accent;
+    self.licenseButton.layer.cornerRadius = 10;
+    self.licenseButton.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+    self.licenseButton.accessibilityLabel = @"激活或重新验证推流助手";
+    [self.licenseButton addTarget:self action:@selector(activateLicense) forControlEvents:UIControlEventTouchUpInside];
+    [self.licenseButton.widthAnchor constraintEqualToConstant:92].active = YES;
+    UIStackView *licenseInputRow = [[UIStackView alloc] initWithArrangedSubviews:@[self.licenseCodeField, self.licenseButton]];
+    licenseInputRow.axis = UILayoutConstraintAxisHorizontal;
+    licenseInputRow.spacing = 8;
+
+    self.licenseMessageLabel = [self label:@"激活码只绑定当前手机；更换手机请先联系管理员解绑。" size:12
+                                             color:[UIColor colorWithWhite:1 alpha:0.55]];
+    self.licenseMessageLabel.numberOfLines = 3;
+    [self.licenseMessageLabel.heightAnchor constraintEqualToConstant:54].active = YES;
+    self.licensePanel = [[UIStackView alloc] initWithArrangedSubviews:@[
+        self.licenseStateLabel, self.licenseDetailLabel, licenseInputRow, self.licenseMessageLabel
+    ]];
+    self.licensePanel.axis = UILayoutConstraintAxisVertical;
+    self.licensePanel.spacing = 10;
+    self.licensePanel.hidden = self.tabControl.selectedSegmentIndex != 2;
+    self.videoPanel.hidden = self.tabControl.selectedSegmentIndex != 0;
+    self.audioPanel.hidden = self.tabControl.selectedSegmentIndex != 1;
+
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        header, self.tabControl, self.videoPanel, self.audioPanel
+        header, self.tabControl, self.videoPanel, self.audioPanel, self.licensePanel
     ]];
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 8;
@@ -518,6 +578,12 @@ static NSInteger const CBBubbleTag = 902174;
     self.tabControl = nil;
     self.videoPanel = nil;
     self.audioPanel = nil;
+    self.licensePanel = nil;
+    self.licenseStateLabel = nil;
+    self.licenseDetailLabel = nil;
+    self.licenseMessageLabel = nil;
+    self.licenseCodeField = nil;
+    self.licenseButton = nil;
     self.audioModeControl = nil;
     self.audioModeLabel = nil;
     self.audioRouteLabel = nil;
@@ -551,13 +617,27 @@ static NSInteger const CBBubbleTag = 902174;
     NSString *text = UIPasteboard.generalPasteboard.string;
     if (text.length) self.addressField.text = text;
     if ([self saveAddress]) {
-        self.enabledSwitch.on = YES;
-        [NSUserDefaults.standardUserDefaults setBool:YES forKey:CBEnabledKey];
+        BOOL authorized = [BolemeLicenseManager shared].isAuthorized;
+        self.enabledSwitch.on = authorized;
+        [NSUserDefaults.standardUserDefaults setBool:authorized forKey:CBEnabledKey];
+        if (!authorized) {
+            self.hintLabel.text = @"地址已保存；激活推流助手后即可开启替换";
+            self.hintLabel.textColor = UIColor.systemOrangeColor;
+        }
         [self.addressField resignFirstResponder];
     }
 }
 
 - (void)toggleReplacement {
+    if (self.enabledSwitch.isOn && ![BolemeLicenseManager shared].isAuthorized) {
+        self.enabledSwitch.on = NO;
+        [NSUserDefaults.standardUserDefaults setBool:NO forKey:CBEnabledKey];
+        self.tabControl.selectedSegmentIndex = 2;
+        [self changeTab];
+        self.licenseMessageLabel.text = @"请先输入推流助手激活码，激活后才能替换摄像头画面。";
+        self.licenseMessageLabel.textColor = UIColor.systemOrangeColor;
+        return;
+    }
     if (self.enabledSwitch.isOn && ![self saveAddress]) {
         self.enabledSwitch.on = NO;
         return;
@@ -571,12 +651,39 @@ static NSInteger const CBBubbleTag = 902174;
 }
 
 - (void)changeTab {
-    BOOL showAudio = self.tabControl.selectedSegmentIndex == 1;
-    self.videoPanel.hidden = showAudio;
-    self.audioPanel.hidden = !showAudio;
+    NSInteger selected = self.tabControl.selectedSegmentIndex;
+    self.videoPanel.hidden = selected != 0;
+    self.audioPanel.hidden = selected != 1;
+    self.licensePanel.hidden = selected != 2;
     [UIView animateWithDuration:0.16 animations:^{
         [self.card.superview layoutIfNeeded];
     }];
+}
+
+- (void)activateLicense {
+    [self.licenseCodeField resignFirstResponder];
+    BolemeLicenseManager *manager = [BolemeLicenseManager shared];
+    NSString *entered = [self.licenseCodeField.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    self.licenseButton.enabled = NO;
+    [self.licenseButton setTitle:@"请稍候" forState:UIControlStateNormal];
+    void (^completion)(BOOL, NSString *) = ^(BOOL success, NSString *message) {
+        self.licenseButton.enabled = YES;
+        [self refreshLicenseUI];
+        self.licenseMessageLabel.text = message;
+        self.licenseMessageLabel.textColor = success
+            ? [UIColor colorWithRed:0.32 green:0.85 blue:0.70 alpha:1]
+            : UIColor.systemOrangeColor;
+        if (success) {
+            self.enabledSwitch.enabled = YES;
+        }
+    };
+    if (entered.length && ![entered isEqualToString:manager.activationCode]) {
+        [manager activateCode:entered completion:completion];
+    } else if (entered.length && !manager.isAuthorized) {
+        [manager activateCode:entered completion:completion];
+    } else {
+        [manager validateNowWithCompletion:completion];
+    }
 }
 
 - (void)changeAudioMode {
@@ -586,6 +693,10 @@ static NSInteger const CBBubbleTag = 902174;
 }
 
 - (BOOL)textFieldShouldReturn:(UITextField *)textField {
+    if (textField == self.licenseCodeField) {
+        [self activateLicense];
+        return YES;
+    }
     [self saveAddress];
     [textField resignFirstResponder];
     return YES;
@@ -595,16 +706,41 @@ static NSInteger const CBBubbleTag = 902174;
     return !self.card || ![touch.view isDescendantOfView:self.card];
 }
 
+- (void)refreshLicenseUI {
+    BolemeLicenseManager *manager = [BolemeLicenseManager shared];
+    UIColor *green = [UIColor colorWithRed:0.32 green:0.85 blue:0.70 alpha:1];
+    UIColor *amber = UIColor.systemOrangeColor;
+    self.licenseStateLabel.text = [NSString stringWithFormat:@"推流助手%@", manager.statusText ?: @"未激活"];
+    self.licenseStateLabel.textColor = manager.isAuthorized ? green : amber;
+    self.licenseDetailLabel.text = manager.detailText ?: @"输入激活码后才能替换摄像头画面";
+    self.licenseButton.enabled = !manager.isChecking;
+    [self.licenseButton setTitle:(manager.isChecking ? @"请稍候" : (manager.isAuthorized ? @"验证授权" : @"立即激活"))
+                         forState:UIControlStateNormal];
+    if (!self.licenseCodeField.isFirstResponder && !self.licenseCodeField.text.length && manager.activationCode.length) {
+        self.licenseCodeField.text = manager.activationCode;
+    }
+    self.enabledSwitch.enabled = manager.isAuthorized && !manager.isChecking;
+    self.enabledSwitch.alpha = manager.isAuthorized ? 1.0 : 0.48;
+}
+
 - (void)refreshStatus {
     NSDictionary *snapshot = CBStatusSnapshot();
-    BOOL enabled = [NSUserDefaults.standardUserDefaults boolForKey:CBEnabledKey];
+    BolemeLicenseManager *license = [BolemeLicenseManager shared];
+    BOOL requestedEnabled = [NSUserDefaults.standardUserDefaults boolForKey:CBEnabledKey];
+    BOOL enabled = requestedEnabled && license.isAuthorized;
+    if (requestedEnabled && !license.isAuthorized) {
+        [NSUserDefaults.standardUserDefaults setBool:NO forKey:CBEnabledKey];
+        self.enabledSwitch.on = NO;
+    }
     double age = [snapshot[@"frameAge"] doubleValue];
     BOOL cameraSeen = [snapshot[@"cameraFrames"] unsignedIntegerValue] > 0;
     BOOL fresh = enabled && cameraSeen && age >= 0 && age < 2.0;
     UIColor *green = [UIColor colorWithRed:0.22 green:0.78 blue:0.62 alpha:1];
     UIColor *amber = UIColor.systemOrangeColor;
-    self.statusDot.backgroundColor = fresh ? green : (enabled ? amber : UIColor.systemGrayColor);
+    self.statusDot.backgroundColor = !license.isAuthorized ? amber : (fresh ? green : (enabled ? amber : UIColor.systemGrayColor));
+    self.bubble.accessibilityValue = license.isAuthorized ? self.bubble.accessibilityValue : @"推流助手尚未激活";
     if (!self.shade) return;
+    [self refreshLicenseUI];
     NSString *state = snapshot[@"state"];
     NSString *headline = !enabled ? @"已暂停" : (fresh ? @"画面稳定" : @"正在缓冲 / 重连");
     NSString *detail = @"等待视频";
@@ -711,9 +847,11 @@ static NSInteger const CBBubbleTag = 902174;
     self.headerMicrophoneIcon.accessibilityValue = microphoneLevel > 0
         ? [NSString stringWithFormat:@"%@ 有声音", inputName]
         : (capturing ? @"麦克风正在采集，但没有声音" : @"没有检测到麦克风收音");
-    self.bubble.accessibilityValue = [NSString stringWithFormat:@"%@；%@",
-        speakerLevel > 0 ? @"检测到电脑声音" : (outputActive ? @"输出已打开但未测到声音" : @"电脑声音未送出"),
-        microphoneLevel > 0 ? @"麦克风有声音" : (capturing ? @"麦克风正在采集但没有声音" : @"麦克风未收音")];
+    self.bubble.accessibilityValue = [BolemeLicenseManager shared].isAuthorized
+        ? [NSString stringWithFormat:@"%@；%@",
+            speakerLevel > 0 ? @"检测到电脑声音" : (outputActive ? @"输出已打开但未测到声音" : @"电脑声音未送出"),
+            microphoneLevel > 0 ? @"麦克风有声音" : (capturing ? @"麦克风正在采集但没有声音" : @"麦克风未收音")]
+        : @"推流助手尚未激活";
 
     if (!self.speakerMeter || !self.microphoneMeter) return;
     self.speakerTitleLabel.text = [NSString stringWithFormat:@"声音输出 · %@", outputName];
