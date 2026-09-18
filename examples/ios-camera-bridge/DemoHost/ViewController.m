@@ -5,12 +5,10 @@
 #import <CoreImage/CoreImage.h>
 #import <QuartzCore/QuartzCore.h>
 
-@interface ViewController () <AVCaptureVideoDataOutputSampleBufferDelegate, UITextFieldDelegate>
+@interface ViewController () <AVCaptureVideoDataOutputSampleBufferDelegate>
 @property (nonatomic, strong) AVCaptureSession *session;
 @property (nonatomic, strong) CIContext *context;
 @property (nonatomic, strong) UIImageView *imageView;
-@property (nonatomic, strong) UITextField *urlField;
-@property (nonatomic, strong) UISwitch *enabledSwitch;
 @property (nonatomic, strong) UILabel *statusLabel;
 @property (nonatomic, assign) CFTimeInterval lastPreviewTime;
 @end
@@ -23,26 +21,14 @@
     self.context = [CIContext contextWithOptions:nil];
 
     UILabel *titleLabel = [UILabel new];
-    titleLabel.text = @"Camera Bridge 测试 App";
+    titleLabel.text = @"Camera Bridge";
     titleLabel.font = [UIFont boldSystemFontOfSize:21];
 
-    self.urlField = [UITextField new];
-    self.urlField.borderStyle = UITextBorderStyleRoundedRect;
-    self.urlField.placeholder = @"http://电脑IP:8888/obs/index.m3u8";
-    self.urlField.text = [NSUserDefaults.standardUserDefaults stringForKey:CBStreamURLKey];
-    self.urlField.keyboardType = UIKeyboardTypeURL;
-    self.urlField.autocapitalizationType = UITextAutocapitalizationTypeNone;
-    self.urlField.autocorrectionType = UITextAutocorrectionTypeNo;
-    self.urlField.delegate = self;
-
-    UILabel *switchLabel = [UILabel new];
-    switchLabel.text = @"替换摄像头画面";
-    self.enabledSwitch = [UISwitch new];
-    self.enabledSwitch.on = [NSUserDefaults.standardUserDefaults boolForKey:CBEnabledKey];
-    [self.enabledSwitch addTarget:self action:@selector(saveSettings) forControlEvents:UIControlEventValueChanged];
-    UIStackView *switchRow = [[UIStackView alloc] initWithArrangedSubviews:@[switchLabel, self.enabledSwitch]];
-    switchRow.axis = UILayoutConstraintAxisHorizontal;
-    switchRow.distribution = UIStackViewDistributionEqualSpacing;
+    UILabel *hint = [UILabel new];
+    hint.text = @"点右侧 OBS 设置画面源；可拖动按钮避开预览。";
+    hint.textColor = UIColor.secondaryLabelColor;
+    hint.font = [UIFont systemFontOfSize:13];
+    hint.numberOfLines = 2;
 
     self.statusLabel = [UILabel new];
     self.statusLabel.text = @"等待相机权限…";
@@ -54,7 +40,7 @@
     self.imageView.contentMode = UIViewContentModeScaleAspectFit;
     [self.imageView.heightAnchor constraintEqualToConstant:420].active = YES;
 
-    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[titleLabel, self.urlField, switchRow, self.statusLabel, self.imageView]];
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[titleLabel, hint, self.statusLabel, self.imageView]];
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 14;
     stack.translatesAutoresizingMaskIntoConstraints = NO;
@@ -69,21 +55,12 @@
     [self requestCamera];
 }
 
-- (void)saveSettings {
-    [NSUserDefaults.standardUserDefaults setObject:self.urlField.text ?: @"" forKey:CBStreamURLKey];
-    [NSUserDefaults.standardUserDefaults setBool:self.enabledSwitch.isOn forKey:CBEnabledKey];
-}
-
-- (BOOL)textFieldShouldReturn:(UITextField *)textField {
-    [textField resignFirstResponder];
-    [self saveSettings];
-    return YES;
-}
-
 - (void)updateStatus {
     NSDictionary *status = CBStatusSnapshot();
-    self.statusLabel.text = [NSString stringWithFormat:@"状态：%@\n相机回调：%@（%@）  已替换帧：%@",
-                             status[@"state"], status[@"cameraFrames"], status[@"pixelFormat"], status[@"frames"]];
+    self.statusLabel.text = [NSString stringWithFormat:
+        @"状态：%@\n接收 %.1f 帧/秒 · 替换 %.1f 帧/秒\n相机 %@ · 累计替换 %@ 帧 · 黑帧 %@",
+        status[@"state"], [status[@"receivedFPS"] doubleValue], [status[@"replacedFPS"] doubleValue],
+        status[@"pixelFormat"], status[@"frames"], status[@"blackFrames"]];
 }
 
 - (void)requestCamera {
@@ -112,6 +89,8 @@
         output.videoSettings = @{(id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA)};
         output.alwaysDiscardsLateVideoFrames = YES;
         if ([session canAddOutput:output]) [session addOutput:output];
+        AVCaptureConnection *connection = [output connectionWithMediaType:AVMediaTypeVideo];
+        if (connection.isVideoOrientationSupported) connection.videoOrientation = AVCaptureVideoOrientationPortrait;
         dispatch_queue_t queue = dispatch_queue_create("camera-bridge.preview", DISPATCH_QUEUE_SERIAL);
         [output setSampleBufferDelegate:self queue:queue];
         self.session = session;

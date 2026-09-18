@@ -25,7 +25,8 @@ xcrun --sdk iphoneos clang -arch arm64 -dynamiclib -fobjc-arc \
   -framework Foundation -framework UIKit -framework AVFoundation \
   -framework CoreMedia -framework CoreVideo -framework CoreImage -framework CoreGraphics -framework QuartzCore \
   -Wl,-install_name,@rpath/CameraBridge.dylib \
-  "$project_dir/CameraBridge/CameraBridge.m" -o "$project_dir/out/CameraBridge.dylib"
+  "$project_dir/CameraBridge/CameraBridge.m" \
+  "$project_dir/CameraBridge/BridgeControls.m" -o "$project_dir/out/CameraBridge.dylib"
 codesign --force --sign - "$project_dir/out/CameraBridge.dylib"
 
 echo "Built: $project_dir/out/CameraBridgeDemo.ipa"

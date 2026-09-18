@@ -3,11 +3,94 @@
 #import <AVFoundation/AVFoundation.h>
 #import <CoreImage/CoreImage.h>
 #import <QuartzCore/QuartzCore.h>
-#import <UIKit/UIKit.h>
 #import <objc/runtime.h>
+#import <math.h>
+#import <string.h>
 
 NSString * const CBStreamURLKey = @"CameraBridge.StreamURL";
 NSString * const CBEnabledKey = @"CameraBridge.Enabled";
+NSString * const CBRotationKey = @"CameraBridge.Rotation";
+
+NSString *CBNormalizedStreamURL(NSString *input) {
+    NSString *value = [input ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (!value.length) return nil;
+    if (![value containsString:@"://"]) {
+        // The common case needs only the PC's LAN IP, not a 40-character URL.
+        if ([value containsString:@"/"] || [value containsString:@"?"] || [value containsString:@"#"]) return nil;
+        value = [NSString stringWithFormat:@"http://%@%@/obs/index.m3u8", value,
+                 [value containsString:@":"] ? @"" : @":8888"];
+    }
+    NSURLComponents *parts = [NSURLComponents componentsWithString:value];
+    if ([parts.path isEqualToString:@"/obs"] || [parts.path isEqualToString:@"/obs/"]) {
+        parts.path = @"/obs/index.m3u8";
+    }
+    NSURL *url = parts.URL;
+    NSString *scheme = url.scheme.lowercaseString;
+    if ((! [scheme isEqualToString:@"http"] && ![scheme isEqualToString:@"https"]) ||
+        !url.host.length || ![url.pathExtension.lowercaseString isEqualToString:@"m3u8"]) return nil;
+    return url.absoluteString;
+}
+
+static uint8_t CBClampByte(int value) {
+    return (uint8_t)MAX(0, MIN(255, value));
+}
+
+static void CBFillBlack(CVPixelBufferRef buffer, OSType format) {
+    CVPixelBufferLockBaseAddress(buffer, 0);
+    size_t width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer);
+    if (format == kCVPixelFormatType_32BGRA) {
+        uint8_t *base = CVPixelBufferGetBaseAddress(buffer);
+        size_t stride = CVPixelBufferGetBytesPerRow(buffer);
+        for (size_t y = 0; y < height; y++) {
+            uint8_t *row = base + y * stride;
+            for (size_t x = 0; x < width; x++) {
+                row[x * 4] = row[x * 4 + 1] = row[x * 4 + 2] = 0;
+                row[x * 4 + 3] = 255;
+            }
+        }
+    } else {
+        uint8_t *luma = CVPixelBufferGetBaseAddressOfPlane(buffer, 0);
+        uint8_t *chroma = CVPixelBufferGetBaseAddressOfPlane(buffer, 1);
+        size_t yStride = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0);
+        size_t uvStride = CVPixelBufferGetBytesPerRowOfPlane(buffer, 1);
+        memset(luma, format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange ? 16 : 0, yStride * height);
+        memset(chroma, 128, uvStride * CVPixelBufferGetHeightOfPlane(buffer, 1));
+    }
+    CVPixelBufferUnlockBaseAddress(buffer, 0);
+}
+
+static void CBConvertBGRAtoNV12(CVPixelBufferRef bgra, CVPixelBufferRef nv12, BOOL videoRange) {
+    CVPixelBufferLockBaseAddress(bgra, kCVPixelBufferLock_ReadOnly);
+    CVPixelBufferLockBaseAddress(nv12, 0);
+    const uint8_t *source = CVPixelBufferGetBaseAddress(bgra);
+    uint8_t *luma = CVPixelBufferGetBaseAddressOfPlane(nv12, 0);
+    uint8_t *chroma = CVPixelBufferGetBaseAddressOfPlane(nv12, 1);
+    size_t width = CVPixelBufferGetWidth(nv12), height = CVPixelBufferGetHeight(nv12);
+    size_t sourceStride = CVPixelBufferGetBytesPerRow(bgra);
+    size_t yStride = CVPixelBufferGetBytesPerRowOfPlane(nv12, 0);
+    size_t uvStride = CVPixelBufferGetBytesPerRowOfPlane(nv12, 1);
+    for (size_t y = 0; y < height; y += 2) {
+        for (size_t x = 0; x < width; x += 2) {
+            int red = 0, green = 0, blue = 0, samples = 0;
+            for (size_t dy = 0; dy < 2 && y + dy < height; dy++) {
+                for (size_t dx = 0; dx < 2 && x + dx < width; dx++) {
+                    const uint8_t *pixel = source + (y + dy) * sourceStride + (x + dx) * 4;
+                    int b = pixel[0], g = pixel[1], r = pixel[2];
+                    luma[(y + dy) * yStride + x + dx] = videoRange
+                        ? CBClampByte(16 + ((66 * r + 129 * g + 25 * b + 128) >> 8))
+                        : CBClampByte((77 * r + 150 * g + 29 * b + 128) >> 8);
+                    red += r; green += g; blue += b; samples++;
+                }
+            }
+            int r = red / samples, g = green / samples, b = blue / samples;
+            size_t uvIndex = (y / 2) * uvStride + x;
+            chroma[uvIndex] = CBClampByte(128 + ((-38 * r - 74 * g + 112 * b + 128) >> 8));
+            if (x + 1 < uvStride) chroma[uvIndex + 1] = CBClampByte(128 + ((112 * r - 94 * g - 18 * b + 128) >> 8));
+        }
+    }
+    CVPixelBufferUnlockBaseAddress(nv12, 0);
+    CVPixelBufferUnlockBaseAddress(bgra, kCVPixelBufferLock_ReadOnly);
+}
 
 @interface CBReceiver : NSObject
 @property (nonatomic, strong) AVPlayer *player;
@@ -18,17 +101,28 @@ NSString * const CBEnabledKey = @"CameraBridge.Enabled";
 @property (nonatomic, assign) CVPixelBufferRef latestPixelBuffer;
 @property (nonatomic, assign) CFAbsoluteTime latestFrameTime;
 @property (nonatomic, assign) NSUInteger replacedCount;
+@property (nonatomic, assign) NSUInteger receivedCount;
 @property (nonatomic, assign) NSUInteger cameraCallbackCount;
 @property (nonatomic, assign) OSType cameraPixelFormat;
-@property (nonatomic, assign) CFTimeInterval lastButtonCheck;
+@property (nonatomic, assign) NSUInteger reconnectCount;
+@property (nonatomic, assign) NSUInteger placeholderCount;
+@property (nonatomic, assign) NSUInteger previousReceivedCount;
+@property (nonatomic, assign) NSUInteger previousReplacedCount;
+@property (nonatomic, assign) CFTimeInterval lastMetricsTime;
+@property (nonatomic, assign) double receivedFPS;
+@property (nonatomic, assign) double replacedFPS;
+@property (nonatomic, assign) double networkBitrate;
+@property (nonatomic, assign) double videoBitrate;
+@property (nonatomic, assign) NSInteger playerStalls;
+@property (nonatomic, assign) NSInteger droppedFrames;
+@property (nonatomic, assign) CFTimeInterval lastControlCheck;
 @property (nonatomic, assign) CFAbsoluteTime lastConnectTime;
 @property (nonatomic, assign) CFAbsoluteTime retryAfter;
 @property (nonatomic, copy) NSString *state;
 + (instancetype)shared;
 - (void)startOnMainThread;
 - (CVPixelBufferRef)copyFreshFrame CF_RETURNS_RETAINED;
-- (CMSampleBufferRef)copyReplacementForSample:(CMSampleBufferRef)sample CF_RETURNS_RETAINED;
-- (void)installButtonIfNeeded;
+- (CMSampleBufferRef)copyReplacementForSample:(CMSampleBufferRef)sample placeholder:(BOOL *)placeholder CF_RETURNS_RETAINED;
 @end
 
 @implementation CBReceiver
@@ -45,6 +139,10 @@ NSString * const CBEnabledKey = @"CameraBridge.Enabled";
     if (self) {
         _context = [CIContext contextWithOptions:nil];
         _state = @"waiting for camera";
+        _networkBitrate = -1;
+        _videoBitrate = -1;
+        _playerStalls = -1;
+        _droppedFrames = -1;
     }
     return self;
 }
@@ -58,7 +156,7 @@ NSString * const CBEnabledKey = @"CameraBridge.Enabled";
     if (self.displayLink) return;
     self.displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(tick:)];
     [self.displayLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
-    [self installButtonIfNeeded];
+    CBInstallControlsIfNeeded();
 }
 
 - (void)clearFrame {
@@ -72,23 +170,35 @@ NSString * const CBEnabledKey = @"CameraBridge.Enabled";
 }
 
 - (void)tick:(CADisplayLink *)link {
-    if (link.timestamp - self.lastButtonCheck > 1.0) {
-        self.lastButtonCheck = link.timestamp;
-        [self installButtonIfNeeded];
+    if (link.timestamp - self.lastControlCheck > 1.0) {
+        self.lastControlCheck = link.timestamp;
+        CBInstallControlsIfNeeded();
+    }
+    if (link.timestamp - self.lastMetricsTime >= 1.0) {
+        @synchronized (self) {
+            CFTimeInterval elapsed = self.lastMetricsTime > 0 ? link.timestamp - self.lastMetricsTime : 1.0;
+            self.receivedFPS = (self.receivedCount - self.previousReceivedCount) / elapsed;
+            self.replacedFPS = (self.replacedCount - self.previousReplacedCount) / elapsed;
+            self.previousReceivedCount = self.receivedCount;
+            self.previousReplacedCount = self.replacedCount;
+            self.lastMetricsTime = link.timestamp;
+        }
+        AVPlayerItemAccessLogEvent *event = self.player.currentItem.accessLog.events.lastObject;
+        self.networkBitrate = event ? event.observedBitrate : -1;
+        self.videoBitrate = event ? event.averageVideoBitrate : -1;
+        self.playerStalls = event ? event.numberOfStalls : -1;
+        self.droppedFrames = event ? event.numberOfDroppedVideoFrames : -1;
     }
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-    NSString *urlString = [[defaults stringForKey:CBStreamURLKey] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSString *urlString = CBNormalizedStreamURL([defaults stringForKey:CBStreamURLKey]);
     BOOL enabled = [defaults boolForKey:CBEnabledKey];
-    NSURL *url = [NSURL URLWithString:urlString ?: @""];
-    BOOL validURL = [url.scheme.lowercaseString isEqualToString:@"http"] || [url.scheme.lowercaseString isEqualToString:@"https"];
-    validURL = validURL && [url.pathExtension.lowercaseString isEqualToString:@"m3u8"];
 
-    if (!enabled || !validURL) {
+    if (!enabled || !urlString) {
         if (self.player) [self.player pause];
         self.player = nil;
         self.videoOutput = nil;
         self.currentURL = nil;
-        self.state = enabled ? @"enter an HTTP(S) HLS .m3u8 URL" : @"disabled";
+        self.state = enabled ? @"invalid URL" : @"disabled";
         [self clearFrame];
         return;
     }
@@ -98,6 +208,7 @@ NSString * const CBEnabledKey = @"CameraBridge.Enabled";
         [self clearFrame];
         self.currentURL = urlString;
         self.lastConnectTime = CFAbsoluteTimeGetCurrent();
+        NSURL *url = [NSURL URLWithString:urlString];
         NSDictionary *attributes = @{(id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA)};
         self.videoOutput = [[AVPlayerItemVideoOutput alloc] initWithPixelBufferAttributes:attributes];
         AVPlayerItem *item = [AVPlayerItem playerItemWithURL:url];
@@ -112,6 +223,7 @@ NSString * const CBEnabledKey = @"CameraBridge.Enabled";
 
     if (self.player.currentItem.status == AVPlayerItemStatusFailed) {
         self.state = self.player.currentItem.error.localizedDescription ?: @"HLS playback failed";
+        self.reconnectCount++;
         [self.player pause];
         self.currentURL = nil; // Allow a later retry when OBS comes back.
         self.retryAfter = CFAbsoluteTimeGetCurrent() + 2.0;
@@ -120,11 +232,13 @@ NSString * const CBEnabledKey = @"CameraBridge.Enabled";
 
     CFAbsoluteTime mostRecentFrame;
     @synchronized (self) { mostRecentFrame = self.latestFrameTime; }
-    if (CFAbsoluteTimeGetCurrent() - MAX(self.lastConnectTime, mostRecentFrame) > 8.0) {
+    CFTimeInterval frameTimeout = mostRecentFrame > self.lastConnectTime ? 5.0 : 12.0;
+    if (CFAbsoluteTimeGetCurrent() - MAX(self.lastConnectTime, mostRecentFrame) > frameTimeout) {
         self.state = @"HLS stalled; reconnecting";
+        self.reconnectCount++;
         [self.player pause];
         self.currentURL = nil;
-        self.retryAfter = CFAbsoluteTimeGetCurrent() + 2.0;
+        self.retryAfter = CFAbsoluteTimeGetCurrent() + 1.0;
         [self clearFrame];
         return;
     }
@@ -137,59 +251,99 @@ NSString * const CBEnabledKey = @"CameraBridge.Enabled";
         if (_latestPixelBuffer) CVPixelBufferRelease(_latestPixelBuffer);
         _latestPixelBuffer = pixelBuffer; // copyPixelBuffer already returned +1.
         _latestFrameTime = CFAbsoluteTimeGetCurrent();
+        _receivedCount++;
         _state = @"receiving video frames";
     }
 }
 
 - (CVPixelBufferRef)copyFreshFrame {
     @synchronized (self) {
-        if (!_latestPixelBuffer || CFAbsoluteTimeGetCurrent() - _latestFrameTime > 2.0) return NULL;
+        if (!_latestPixelBuffer || CFAbsoluteTimeGetCurrent() - _latestFrameTime > 5.0) return NULL;
         return CVPixelBufferRetain(_latestPixelBuffer);
     }
 }
 
-- (CMSampleBufferRef)copyReplacementForSample:(CMSampleBufferRef)sample CF_RETURNS_RETAINED {
-    CVPixelBufferRef source = [self copyFreshFrame];
-    if (!source) return NULL;
+- (CMSampleBufferRef)copyReplacementForSample:(CMSampleBufferRef)sample placeholder:(BOOL *)placeholder CF_RETURNS_RETAINED {
+    if (placeholder) *placeholder = NO;
     CVPixelBufferRef original = CMSampleBufferGetImageBuffer(sample);
-    if (!original || CVPixelBufferGetPixelFormatType(original) != kCVPixelFormatType_32BGRA) {
-        CVPixelBufferRelease(source);
-        @synchronized (self) { _state = @"camera output is not BGRA; passing through"; }
+    if (!original) return NULL;
+    OSType formatType = CVPixelBufferGetPixelFormatType(original);
+    if (formatType != kCVPixelFormatType_32BGRA &&
+        formatType != kCVPixelFormatType_420YpCbCr8BiPlanarFullRange &&
+        formatType != kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange) {
+        @synchronized (self) { _state = @"unsupported camera pixel format"; }
         return NULL;
     }
 
     size_t width = CVPixelBufferGetWidth(original), height = CVPixelBufferGetHeight(original);
     NSDictionary *attributes = @{
-        (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
+        (id)kCVPixelBufferPixelFormatTypeKey: @(formatType),
         (id)kCVPixelBufferWidthKey: @(width),
         (id)kCVPixelBufferHeightKey: @(height),
         (id)kCVPixelBufferIOSurfacePropertiesKey: @{}
     };
     CVPixelBufferRef target = NULL;
-    CVReturn result = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
+    CVReturn result = CVPixelBufferCreate(kCFAllocatorDefault, width, height, formatType,
                                           (__bridge CFDictionaryRef)attributes, &target);
-    if (result != kCVReturnSuccess || !target) {
-        CVPixelBufferRelease(source);
-        return NULL;
-    }
+    if (result != kCVReturnSuccess || !target) return NULL;
+    CVBufferPropagateAttachments(original, target);
 
-    // Aspect-fill the OBS picture into the camera's dimensions, preserving orientation.
-    CIImage *image = [CIImage imageWithCVPixelBuffer:source];
-    CGRect extent = image.extent;
-    if (CGRectGetWidth(extent) <= 0 || CGRectGetHeight(extent) <= 0) {
+    CVPixelBufferRef source = [self copyFreshFrame];
+    if (source) {
+        BOOL rendered = NO;
+        CIImage *image = [CIImage imageWithCVPixelBuffer:source];
+        NSInteger degrees = [NSUserDefaults.standardUserDefaults integerForKey:CBRotationKey];
+        if (degrees == 90 || degrees == 180 || degrees == 270) {
+            image = [image imageByApplyingTransform:CGAffineTransformMakeRotation((CGFloat)degrees * (CGFloat)M_PI / 180.0)];
+            image = [image imageByApplyingTransform:CGAffineTransformMakeTranslation(-image.extent.origin.x, -image.extent.origin.y)];
+        }
+        CGRect extent = image.extent;
+        if (CGRectGetWidth(extent) > 0 && CGRectGetHeight(extent) > 0) {
+            CGFloat scale = MAX((CGFloat)width / CGRectGetWidth(extent), (CGFloat)height / CGRectGetHeight(extent));
+            CIImage *scaled = [image imageByApplyingTransform:CGAffineTransformMakeScale(scale, scale)];
+            CGFloat dx = (CGFloat)width / 2 - CGRectGetMidX(scaled.extent);
+            CGFloat dy = (CGFloat)height / 2 - CGRectGetMidY(scaled.extent);
+            CIImage *centered = [scaled imageByApplyingTransform:CGAffineTransformMakeTranslation(dx, dy)];
+            CVPixelBufferRef renderTarget = target;
+            if (formatType != kCVPixelFormatType_32BGRA) {
+                NSDictionary *bgraAttributes = @{
+                    (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
+                    (id)kCVPixelBufferWidthKey: @(width),
+                    (id)kCVPixelBufferHeightKey: @(height),
+                    (id)kCVPixelBufferIOSurfacePropertiesKey: @{}
+                };
+                if (CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
+                                        (__bridge CFDictionaryRef)bgraAttributes, &renderTarget) != kCVReturnSuccess) {
+                    renderTarget = NULL;
+                }
+            }
+            if (renderTarget) {
+                CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+                [self.context render:centered toCVPixelBuffer:renderTarget bounds:CGRectMake(0, 0, width, height) colorSpace:colorSpace];
+                CGColorSpaceRelease(colorSpace);
+                if (renderTarget != target) {
+                    CBConvertBGRAtoNV12(renderTarget, target, formatType == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange);
+                    CVPixelBufferRelease(renderTarget);
+                }
+                rendered = YES;
+            } else {
+                CVPixelBufferRelease(source);
+                CVPixelBufferRelease(target);
+                return NULL;
+            }
+        }
         CVPixelBufferRelease(source);
-        CVPixelBufferRelease(target);
-        return NULL;
+        if (!rendered) {
+            CBFillBlack(target, formatType);
+            if (placeholder) *placeholder = YES;
+            @synchronized (self) { _placeholderCount++; }
+        }
+    } else {
+        // Never reveal the physical camera during a network interruption.
+        CBFillBlack(target, formatType);
+        if (placeholder) *placeholder = YES;
+        @synchronized (self) { _placeholderCount++; }
     }
-    CGFloat scale = MAX((CGFloat)width / CGRectGetWidth(extent), (CGFloat)height / CGRectGetHeight(extent));
-    CIImage *scaled = [image imageByApplyingTransform:CGAffineTransformMakeScale(scale, scale)];
-    CGFloat dx = (CGFloat)width / 2 - CGRectGetMidX(scaled.extent);
-    CGFloat dy = (CGFloat)height / 2 - CGRectGetMidY(scaled.extent);
-    CIImage *centered = [scaled imageByApplyingTransform:CGAffineTransformMakeTranslation(dx, dy)];
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-    [self.context render:centered toCVPixelBuffer:target bounds:CGRectMake(0, 0, width, height) colorSpace:colorSpace];
-    CGColorSpaceRelease(colorSpace);
-    CVPixelBufferRelease(source);
 
     CMVideoFormatDescriptionRef format = NULL;
     CMSampleBufferRef replacement = NULL;
@@ -202,59 +356,8 @@ NSString * const CBEnabledKey = @"CameraBridge.Enabled";
     if (format) CFRelease(format);
     CVPixelBufferRelease(target);
     if (status != noErr) return NULL;
-    @synchronized (self) { _replacedCount++; }
+    @synchronized (self) { if (!placeholder || !*placeholder) _replacedCount++; }
     return replacement;
-}
-
-- (UIWindow *)activeWindow {
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if (![scene isKindOfClass:UIWindowScene.class] || scene.activationState != UISceneActivationStateForegroundActive) continue;
-        for (UIWindow *window in ((UIWindowScene *)scene).windows) if (window.isKeyWindow) return window;
-    }
-    return UIApplication.sharedApplication.windows.firstObject;
-}
-
-- (void)installButtonIfNeeded {
-    UIWindow *window = [self activeWindow];
-    if (!window || [window viewWithTag:902174]) return;
-    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
-    button.tag = 902174;
-    button.frame = CGRectMake(window.bounds.size.width - 64, 130, 52, 52);
-    button.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-    button.backgroundColor = [UIColor colorWithRed:0.12 green:0.18 blue:0.25 alpha:0.85];
-    button.layer.cornerRadius = 26;
-    [button setTitle:@"OBS" forState:UIControlStateNormal];
-    [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    [button addTarget:self action:@selector(showSettings) forControlEvents:UIControlEventTouchUpInside];
-    [window addSubview:button];
-}
-
-- (void)showSettings {
-    UIWindow *window = [self activeWindow];
-    UIViewController *controller = window.rootViewController;
-    while (controller.presentedViewController) controller = controller.presentedViewController;
-    if (!controller) return;
-    NSDictionary *status = CBStatusSnapshot();
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Camera Bridge"
-        message:[NSString stringWithFormat:@"状态：%@\n相机回调：%@（%@）\n替换帧数：%@",
-                 status[@"state"], status[@"cameraFrames"], status[@"pixelFormat"], status[@"frames"]]
-        preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
-        field.placeholder = @"http://电脑IP:8888/obs/index.m3u8";
-        field.text = [NSUserDefaults.standardUserDefaults stringForKey:CBStreamURLKey];
-        field.keyboardType = UIKeyboardTypeURL;
-        field.autocapitalizationType = UITextAutocapitalizationTypeNone;
-    }];
-    [alert addAction:[UIAlertAction actionWithTitle:@"启用" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        NSString *url = alert.textFields.firstObject.text ?: @"";
-        [NSUserDefaults.standardUserDefaults setObject:url forKey:CBStreamURLKey];
-        [NSUserDefaults.standardUserDefaults setBool:YES forKey:CBEnabledKey];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"关闭替换" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
-        [NSUserDefaults.standardUserDefaults setBool:NO forKey:CBEnabledKey];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [controller presentViewController:alert animated:YES completion:nil];
 }
 
 @end
@@ -272,12 +375,12 @@ NSString * const CBEnabledKey = @"CameraBridge.Enabled";
         receiver.cameraCallbackCount++;
         if (originalBuffer) receiver.cameraPixelFormat = CVPixelBufferGetPixelFormatType(originalBuffer);
     }
-    CMSampleBufferRef replacement = NULL;
-    if ([NSUserDefaults.standardUserDefaults boolForKey:CBEnabledKey]) {
-        replacement = [receiver copyReplacementForSample:sample];
-    }
+    BOOL enabled = [NSUserDefaults.standardUserDefaults boolForKey:CBEnabledKey];
+    BOOL placeholder = NO;
+    CMSampleBufferRef replacement = enabled ? [receiver copyReplacementForSample:sample placeholder:&placeholder] : NULL;
     id<AVCaptureVideoDataOutputSampleBufferDelegate> delegate = self.original;
-    if ([delegate respondsToSelector:@selector(captureOutput:didOutputSampleBuffer:fromConnection:)]) {
+    // Fail closed: do not pass the real camera through when replacement is enabled.
+    if ((!enabled || replacement) && [delegate respondsToSelector:@selector(captureOutput:didOutputSampleBuffer:fromConnection:)]) {
         [delegate captureOutput:output didOutputSampleBuffer:(replacement ?: sample) fromConnection:connection];
     }
     if (replacement) CFRelease(replacement);
@@ -311,10 +414,26 @@ static void CBSetDelegate(id output, SEL selector, id delegate, dispatch_queue_t
 NSDictionary<NSString *, id> *CBStatusSnapshot(void) {
     CBReceiver *receiver = [CBReceiver shared];
     @synchronized (receiver) {
+        CFTimeInterval age = receiver.latestFrameTime > 0 ? CFAbsoluteTimeGetCurrent() - receiver.latestFrameTime : -1;
+        OSType pixelFormat = receiver.cameraPixelFormat;
+        NSString *pixelFormatLabel = pixelFormat == kCVPixelFormatType_32BGRA ? @"BGRA" :
+            (pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange ? @"NV12 full" :
+            (pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange ? @"NV12 video" :
+            [NSString stringWithFormat:@"0x%08x", (unsigned int)pixelFormat]));
         return @{ @"state": receiver.state ?: @"unknown",
                   @"frames": @(receiver.replacedCount),
+                  @"receivedFrames": @(receiver.receivedCount),
+                  @"receivedFPS": @(receiver.receivedFPS),
+                  @"replacedFPS": @(receiver.replacedFPS),
+                  @"frameAge": @(age),
+                  @"blackFrames": @(receiver.placeholderCount),
+                  @"reconnects": @(receiver.reconnectCount),
+                  @"networkBitrate": @(receiver.networkBitrate),
+                  @"videoBitrate": @(receiver.videoBitrate),
+                  @"playerStalls": @(receiver.playerStalls),
+                  @"droppedFrames": @(receiver.droppedFrames),
                   @"cameraFrames": @(receiver.cameraCallbackCount),
-                  @"pixelFormat": receiver.cameraPixelFormat == kCVPixelFormatType_32BGRA ? @"BGRA" : [NSString stringWithFormat:@"0x%08x", (unsigned int)receiver.cameraPixelFormat],
+                  @"pixelFormat": pixelFormatLabel,
                   @"url": receiver.currentURL ?: @"" };
     }
 }
@@ -324,4 +443,5 @@ __attribute__((constructor)) static void CBInstallHook(void) {
     if (!method) return;
     CBOriginalSetDelegate = (void *)method_getImplementation(method);
     method_setImplementation(method, (IMP)CBSetDelegate);
+    dispatch_async(dispatch_get_main_queue(), ^{ [[CBReceiver shared] startOnMainThread]; });
 }
