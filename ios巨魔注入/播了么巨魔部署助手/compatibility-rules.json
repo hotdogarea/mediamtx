@@ -1,0 +1,39 @@
+{
+  "routes": [
+    {
+      "id": "trollrestore-ios-15-16",
+      "name": "TrollRestore + Tips",
+      "deviceClasses": ["iPhone", "iPad", "iPod"],
+      "minVersionInclusive": "15.0",
+      "maxVersionExclusive": "16.7",
+      "prerequisites": [
+        { "id": "backup", "label": "重要资料已经备份" },
+        { "id": "tips", "label": "已安装并打开过苹果官方“提示”App" },
+        { "id": "find-my", "label": "已暂时关闭“查找我的 iPhone/iPad”" }
+      ]
+    },
+    {
+      "id": "trollrestore-ios-16-7-rc",
+      "name": "TrollRestore + Tips（16.7 RC）",
+      "deviceClasses": ["iPhone", "iPad", "iPod"],
+      "exactVersion": "16.7",
+      "requiredBuild": "20H18",
+      "prerequisites": [
+        { "id": "backup", "label": "重要资料已经备份" },
+        { "id": "tips", "label": "已安装并打开过苹果官方“提示”App" },
+        { "id": "find-my", "label": "已暂时关闭“查找我的 iPhone/iPad”" }
+      ]
+    },
+    {
+      "id": "trollrestore-ios-17-0",
+      "name": "TrollRestore + Tips（iOS/iPadOS 17.0）",
+      "deviceClasses": ["iPhone", "iPad", "iPod"],
+      "exactVersion": "17.0",
+      "prerequisites": [
+        { "id": "backup", "label": "重要资料已经备份" },
+        { "id": "tips", "label": "已安装并打开过苹果官方“提示”App" },
+        { "id": "find-my", "label": "已暂时关闭“查找我的 iPhone/iPad”" }
+      ]
+    }
+  ]
+}

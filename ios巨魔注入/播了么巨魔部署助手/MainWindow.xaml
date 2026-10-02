@@ -1,0 +1,255 @@
+<Window x:Class="Boleme.TrollDeploy.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="播了么巨魔一键部署助手"
+        Width="1040" Height="720" MinWidth="920" MinHeight="640"
+        WindowStartupLocation="CenterScreen" Background="#F4F7FB">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="76" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="White" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1">
+            <Grid Margin="28,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="38" Height="38" CornerRadius="8" Background="#0B6E75">
+                        <TextBlock Text="播" Foreground="White" FontSize="19" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="播了么巨魔一键部署助手" FontSize="17" FontWeight="SemiBold" />
+                        <TextBlock Text="自动识别设备 · 动态匹配安装方案" FontSize="12" Foreground="{StaticResource MutedBrush}" Margin="0,3,0,0" />
+                    </StackPanel>
+                </StackPanel>
+                <Border Grid.Column="1" Background="#E7F6F2" CornerRadius="14" Padding="12,6" VerticalAlignment="Center">
+                    <TextBlock x:Name="HeaderStatusText" Text="准备检查" Foreground="#126B55" FontSize="12" FontWeight="SemiBold" />
+                </Border>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="260" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Background="#102A43">
+                <Grid Margin="28,32,24,24">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="安装进度" Foreground="#BCCCDC" FontSize="12" FontWeight="SemiBold" />
+                    <StackPanel Grid.Row="1" Margin="0,22,0,0">
+                        <StackPanel x:Name="Step1" Orientation="Horizontal" Margin="0,0,0,24">
+                            <Border x:Name="Step1Dot" Width="28" Height="28" CornerRadius="14" Background="#E76F51">
+                                <TextBlock Text="1" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold" />
+                            </Border>
+                            <StackPanel Margin="12,0,0,0">
+                                <TextBlock Text="环境检查" Foreground="White" FontWeight="SemiBold" />
+                                <TextBlock Text="设备、驱动和组件" Foreground="#9FB3C8" FontSize="12" Margin="0,3,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                        <StackPanel x:Name="Step2" Orientation="Horizontal" Margin="0,0,0,24" Opacity="0.55">
+                            <Border x:Name="Step2Dot" Width="28" Height="28" CornerRadius="14" BorderBrush="#9FB3C8" BorderThickness="1">
+                                <TextBlock Text="2" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <StackPanel Margin="12,0,0,0">
+                                <TextBlock Text="自动部署" Foreground="White" FontWeight="SemiBold" />
+                                <TextBlock Text="配置 Tips 环境" Foreground="#9FB3C8" FontSize="12" Margin="0,3,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                        <StackPanel x:Name="Step3" Orientation="Horizontal" Margin="0,0,0,24" Opacity="0.55">
+                            <Border x:Name="Step3Dot" Width="28" Height="28" CornerRadius="14" BorderBrush="#9FB3C8" BorderThickness="1">
+                                <TextBlock Text="3" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <StackPanel Margin="12,0,0,0">
+                                <TextBlock Text="手机确认" Foreground="White" FontWeight="SemiBold" />
+                                <TextBlock Text="安装 TrollStore" Foreground="#9FB3C8" FontSize="12" Margin="0,3,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                        <StackPanel x:Name="Step4" Orientation="Horizontal" Opacity="0.55">
+                            <Border x:Name="Step4Dot" Width="28" Height="28" CornerRadius="14" BorderBrush="#9FB3C8" BorderThickness="1">
+                                <TextBlock Text="4" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <StackPanel Margin="12,0,0,0">
+                                <TextBlock Text="完成" Foreground="White" FontWeight="SemiBold" />
+                                <TextBlock Text="检查并恢复设置" Foreground="#9FB3C8" FontSize="12" Margin="0,3,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                    <Border Grid.Row="2" Background="#173B58" CornerRadius="6" Padding="12">
+                        <TextBlock Text="安装期间不要拔掉数据线，也不要关闭本程序。" TextWrapping="Wrap" Foreground="#D9E2EC" FontSize="12" LineHeight="19" />
+                    </Border>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Column="1" Margin="44,34,44,32">
+                <Grid x:Name="PreparationPanel">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="连接并识别 Apple 设备" FontSize="27" FontWeight="SemiBold" />
+                        <TextBlock Text="确认下面项目后，助手会自动完成电脑端部署。" Foreground="{StaticResource MutedBrush}" FontSize="14" Margin="0,8,0,0" />
+                    </StackPanel>
+
+                    <Border x:Name="ErrorBanner" Grid.Row="1" Visibility="Collapsed" Background="#FFF0EF" BorderBrush="#F3B7B1" BorderThickness="1"
+                            CornerRadius="6" Padding="14,11" Margin="0,20,0,0">
+                        <TextBlock x:Name="ErrorText" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap" />
+                    </Border>
+
+                    <Grid Grid.Row="2" Margin="0,22,0,18">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="18" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="22">
+                            <StackPanel>
+                                <DockPanel>
+                                    <TextBlock Text="自动检查" FontSize="16" FontWeight="SemiBold" />
+                                    <Button DockPanel.Dock="Right" Content="重新检测" Click="RefreshButton_Click" Style="{StaticResource SecondaryButton}" Padding="12,6" FontSize="12" />
+                                </DockPanel>
+                                <Separator Margin="0,16" Background="#E6EDF3" />
+                                <Grid Margin="0,2,0,15">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="26"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="ToolIcon" Text="·" FontSize="22" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="部署组件" FontWeight="SemiBold" />
+                                        <TextBlock x:Name="ToolDetail" Text="正在检查…" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid Margin="0,2,0,15">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="26"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="DeviceIcon" Text="·" FontSize="22" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="Apple 设备" FontWeight="SemiBold" />
+                                        <TextBlock x:Name="DeviceDetail" Text="正在检查…" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid Margin="0,2,0,0">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="26"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="DriverIcon" Text="·" FontSize="22" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="苹果 USB 驱动" FontWeight="SemiBold" />
+                                        <TextBlock x:Name="DriverDetail" Text="正在检查…" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="2" Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="22">
+                            <StackPanel>
+                                <TextBlock Text="设备与安装方案" FontSize="16" FontWeight="SemiBold" />
+                                <TextBlock Text="机型和系统由助手读取，不需要人工填写" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,5,0,10" />
+                                <Border Background="#F0F7FA" CornerRadius="6" Padding="11" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock x:Name="DetectedDeviceText" Text="正在读取设备信息…" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                        <TextBlock x:Name="DetectedVersionText" Text="系统版本：等待检测" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,4,0,0" />
+                                        <TextBlock x:Name="DetectedRouteText" Text="安装方案：等待匹配" Foreground="{StaticResource BrandBrush}" FontSize="12" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock Text="请确认当前方案要求" FontSize="12" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,2" />
+                                <StackPanel x:Name="DynamicChecksPanel" />
+                                <Border Background="#FFF8E7" CornerRadius="5" Padding="10" Margin="0,10,0,0">
+                                    <TextBlock x:Name="RouteNoticeText" Text="连接并信任设备后，助手会显示对应要求。" Foreground="#8A5B12" FontSize="12" TextWrapping="Wrap" />
+                                </Border>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <DockPanel Grid.Row="3">
+                        <TextBlock x:Name="ReadyHint" Text="正在检查设备…" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" />
+                        <Button x:Name="StartButton" DockPanel.Dock="Right" Content="开始部署" IsEnabled="False" Click="StartButton_Click" Style="{StaticResource PrimaryButton}" />
+                    </DockPanel>
+                </Grid>
+
+                <Grid x:Name="RunningPanel" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="正在部署手机环境" FontSize="27" FontWeight="SemiBold" />
+                        <TextBlock x:Name="RunningStatusText" Text="正在启动…" Foreground="{StaticResource MutedBrush}" FontSize="14" Margin="0,8,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Margin="0,26,0,0">
+                        <ProgressBar x:Name="DeployProgress" Height="7" IsIndeterminate="True" Foreground="{StaticResource BrandBrush}" />
+                        <Border Background="#EAF5F5" CornerRadius="6" Padding="14,12" Margin="0,18,0,0">
+                            <TextBlock Text="请保持设备解锁并连接数据线。设备可能会自动重启，属于正常现象。" Foreground="#175D62" TextWrapping="Wrap" />
+                        </Border>
+                    </StackPanel>
+                    <Border Grid.Row="2" Background="#0E1F2E" CornerRadius="8" Margin="0,22,0,18" Padding="15">
+                        <Grid>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                            <TextBlock Text="部署日志" Foreground="#BCCCDC" FontSize="12" FontWeight="SemiBold" />
+                            <TextBox x:Name="LogTextBox" Grid.Row="1" Background="Transparent" Foreground="#E6EDF3" BorderThickness="0"
+                                     FontFamily="Cascadia Mono, Consolas" FontSize="12" Margin="0,10,0,0" IsReadOnly="True"
+                                     TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" AcceptsReturn="True" />
+                        </Grid>
+                    </Border>
+                    <DockPanel Grid.Row="3">
+                        <TextBlock Text="日志中的设备标识会自动脱敏" Foreground="{StaticResource MutedBrush}" FontSize="12" VerticalAlignment="Center" />
+                        <Button x:Name="CancelButton" DockPanel.Dock="Right" Content="取消部署" Click="CancelButton_Click" Style="{StaticResource SecondaryButton}" />
+                    </DockPanel>
+                </Grid>
+
+                <Grid x:Name="PhoneActionPanel" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel VerticalAlignment="Center" MaxWidth="610">
+                        <Border Width="64" Height="64" CornerRadius="32" Background="#E7F6F2" HorizontalAlignment="Left">
+                            <TextBlock Text="3" Foreground="{StaticResource SuccessBrush}" FontSize="28" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Text="请在手机上完成最后一步" FontSize="27" FontWeight="SemiBold" Margin="0,22,0,0" />
+                        <TextBlock Text="电脑端部署已经结束。接下来只需要在 Apple 设备上操作。" Foreground="{StaticResource MutedBrush}" FontSize="14" Margin="0,8,0,0" />
+                        <Border Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="22" Margin="0,24,0,0">
+                            <StackPanel>
+                                <TextBlock Text="1  解锁设备，打开“提示”（Tips）" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,14" />
+                                <TextBlock Text="2  确认页面显示 TrollStore Helper" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,14" />
+                                <TextBlock Text="3  点击 Install TrollStore，等待桌面重新载入" FontSize="15" FontWeight="SemiBold" />
+                            </StackPanel>
+                        </Border>
+                        <CheckBox x:Name="TrollStoreCheck" Content="手机桌面已经出现并能打开 TrollStore" Margin="0,20,0,0" Checked="TrollStoreCheck_Changed" Unchecked="TrollStoreCheck_Changed" />
+                    </StackPanel>
+                    <DockPanel Grid.Row="1">
+                        <Button Content="打开日志位置" Click="OpenLogButton_Click" Style="{StaticResource SecondaryButton}" />
+                        <Button x:Name="FinishButton" DockPanel.Dock="Right" Content="完成安装" IsEnabled="False" Click="FinishButton_Click" Style="{StaticResource PrimaryButton}" />
+                    </DockPanel>
+                </Grid>
+
+                <Grid x:Name="CompletePanel" Visibility="Collapsed">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="560">
+                        <Border Width="72" Height="72" CornerRadius="36" Background="#E7F6F2">
+                            <TextBlock Text="✓" Foreground="{StaticResource SuccessBrush}" FontSize="34" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Text="巨魔环境安装完成" FontSize="28" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,22,0,0" />
+                        <TextBlock Text="请重新开启设备的“查找”功能，并在 TrollStore 设置中确认持久化助手已经安装到 Tips。"
+                                   Foreground="{StaticResource MutedBrush}" FontSize="14" TextAlignment="Center" TextWrapping="Wrap" LineHeight="23" Margin="0,10,0,0" />
+                        <Border Background="#FFF8E7" CornerRadius="7" Padding="16" Margin="0,24,0,0">
+                            <TextBlock Text="重要：重新开启设备的“查找”功能后，再继续安装播了么手机组件。" Foreground="#8A5B12" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" />
+                        </Border>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,28,0,0">
+                            <Button Content="查看安装日志" Click="OpenLogButton_Click" Style="{StaticResource SecondaryButton}" Margin="0,0,10,0" />
+                            <Button Content="退出助手" Click="ExitButton_Click" Style="{StaticResource PrimaryButton}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>
